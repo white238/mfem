@@ -13,6 +13,7 @@
 #define MFEM_MEM_MANAGER_HPP
 
 #include "globals.hpp"
+#include "rts.hpp"
 #include "error.hpp"
 #include <cstring> // std::memcpy
 #include <type_traits> // std::is_const
@@ -602,12 +603,13 @@ inline T *Memory<T>::ReadWrite(MemoryClass mc, int size)
 {
    if (!(flags & REGISTERED))
    {
-      if (mc == MemoryClass::HOST) { return h_ptr; }
+      if (mc == MemoryClass::HOST) { return Runtime::RW<T>(h_ptr,false); }
       MemoryManager::Register_(h_ptr, NULL, capacity*sizeof(T),
                                MemoryType::HOST, flags & OWNS_HOST,
                                flags & ALIAS, flags);
    }
-   return (T*)MemoryManager::ReadWrite_(h_ptr, mc, size*sizeof(T), flags);
+   return Runtime::RW<T>(
+             (T*)MemoryManager::ReadWrite_(h_ptr, mc, size*sizeof(T), flags),true);
 }
 
 template <typename T>
@@ -615,13 +617,13 @@ inline const T *Memory<T>::Read(MemoryClass mc, int size) const
 {
    if (!(flags & REGISTERED))
    {
-      if (mc == MemoryClass::HOST) { return h_ptr; }
+      if (mc == MemoryClass::HOST) { return Runtime::R<T>(h_ptr,false); }
       MemoryManager::Register_((void*)h_ptr, NULL, capacity*sizeof(T),
                                MemoryType::HOST, flags & OWNS_HOST,
                                flags & ALIAS, flags);
    }
-   return (const T *)MemoryManager::Read_(
-             (void*)h_ptr, mc, size*sizeof(T), flags);
+   return Runtime::R<T>((const T *)MemoryManager::Read_(
+                           (void*)h_ptr, mc, size*sizeof(T), flags),true);
 }
 
 template <typename T>
@@ -629,12 +631,13 @@ inline T *Memory<T>::Write(MemoryClass mc, int size)
 {
    if (!(flags & REGISTERED))
    {
-      if (mc == MemoryClass::HOST) { return h_ptr; }
+      if (mc == MemoryClass::HOST) { return Runtime::RW<T>(h_ptr,false); }
       MemoryManager::Register_(h_ptr, NULL, capacity*sizeof(T),
                                MemoryType::HOST, flags & OWNS_HOST,
                                flags & ALIAS, flags);
    }
-   return (T*)MemoryManager::Write_(h_ptr, mc, size*sizeof(T), flags);
+   return Runtime::W<T>((T*)MemoryManager::Write_(h_ptr, mc, size*sizeof(T),
+                                                  flags),true);
 }
 
 template <typename T>
@@ -649,6 +652,7 @@ inline void Memory<T>::Sync(const Memory &other) const
    }
    flags = (flags & ~(VALID_HOST | VALID_DEVICE)) |
            (other.flags & (VALID_HOST | VALID_DEVICE));
+   Runtime::Sync();
 }
 
 template <typename T>

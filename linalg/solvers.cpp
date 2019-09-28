@@ -291,7 +291,7 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
 {
    int i;
    double r0, den, nom, nom0, betanom, alpha, beta;
-
+   dbg("");
    if (iterative_mode)
    {
       oper->Mult(x, r);
@@ -312,6 +312,7 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    {
       d = r;
    }
+   dbg("Dot");
    nom0 = nom = Dot(d, r);
    MFEM_ASSERT(IsFinite(nom), "nom = " << nom);
 
@@ -354,17 +355,23 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    final_iter = max_iter;
    for (i = 1; true; )
    {
+      dbg("\033[7mCG iter start");
       alpha = nom/den;
+      dbg("x = x + alpha d");
       add(x,  alpha, d, x);     //  x = x + alpha d
+      dbg("r = r - alpha A d");
       add(r, -alpha, z, r);     //  r = r - alpha A d
 
       if (prec)
       {
+         dbg("prec->Mult(r, z)");
          prec->Mult(r, z);      //  z = B r
+         dbg("Dot(r, z)");
          betanom = Dot(r, z);
       }
       else
       {
+         dbg("Dot(r, r)");
          betanom = Dot(r, r);
       }
       MFEM_ASSERT(IsFinite(betanom), "betanom = " << betanom);
@@ -405,7 +412,9 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       {
          add(r, beta, d, d);
       }
+      dbg("z = A d");
       oper->Mult(d, z);       //  z = A d
+      dbg("Dot(d, z)");
       den = Dot(d, z);
       MFEM_ASSERT(IsFinite(den), "den = " << den);
       if (den <= 0.0)
@@ -422,6 +431,7 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
          }
       }
       nom = betanom;
+      dbg("CG end of iter");
    }
    if (print_level >= 0 && !converged)
    {

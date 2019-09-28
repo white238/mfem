@@ -925,6 +925,7 @@ static double cuVectorDot(const int N, const double *X, const double *Y)
    cuKernelDot<<<gridSize,blockSize>>>(N, d_dot, X, Y);
    MFEM_GPU_CHECK(cudaGetLastError());
    const double *h_dot = buf.Read(MemoryClass::HOST, dot_sz);
+   Runtime::InOutClear(); // Clear this last read from captured in/out
    double dot = 0.0;
    for (int i = 0; i < dot_sz; i++) { dot += h_dot[i]; }
    return dot;
@@ -933,6 +934,7 @@ static double cuVectorDot(const int N, const double *X, const double *Y)
 
 double Vector::operator*(const Vector &v) const
 {
+   dbg("");
    MFEM_ASSERT(size == v.size, "incompatible Vectors!");
 
    const bool use_dev = UseDevice() || v.UseDevice();

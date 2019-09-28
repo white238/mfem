@@ -10,6 +10,7 @@
 // Software Foundation) version 2.1 dated February 1999.
 
 #include "cuda.hpp"
+#include "rts.hpp"
 #include "globals.hpp"
 
 namespace mfem
@@ -68,6 +69,7 @@ void* CuMemcpyHtoD(void* dst, const void* src, size_t bytes)
    mfem::out << "CuMemcpyHtoD(): copying " << bytes << " bytes from "
              << src << " to " << dst << " ... " << std::flush;
 #endif
+   Runtime::Memcpy("H2D", dst, src, bytes);
    MFEM_GPU_CHECK(cudaMemcpy(dst, src, bytes, cudaMemcpyHostToDevice));
 #ifdef MFEM_TRACK_CUDA_MEM
    mfem::out << "done." << std::endl;
@@ -88,9 +90,11 @@ void* CuMemcpyDtoD(void *dst, const void *src, size_t bytes)
 {
 #ifdef MFEM_USE_CUDA
 #ifdef MFEM_TRACK_CUDA_MEM
-   mfem::out << "CuMemcpyDtoD(): copying " << bytes << " bytes from "
+   mfem::out << "CuMemcp, dst, src, bytesyDtoD(): copying " << bytes <<
+             " bytes from "
              << src << " to " << dst << " ... " << std::flush;
 #endif
+   Runtime::Memcpy("D2D", dst, src, bytes);
    MFEM_GPU_CHECK(cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToDevice));
 #ifdef MFEM_TRACK_CUDA_MEM
    mfem::out << "done." << std::endl;
@@ -114,6 +118,7 @@ void* CuMemcpyDtoH(void *dst, const void *src, size_t bytes)
    mfem::out << "CuMemcpyDtoH(): copying " << bytes << " bytes from "
              << src << " to " << dst << " ... " << std::flush;
 #endif
+   Runtime::Memcpy("D2H", dst, src, bytes);
    MFEM_GPU_CHECK(cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToHost));
 #ifdef MFEM_TRACK_CUDA_MEM
    mfem::out << "done." << std::endl;

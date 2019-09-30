@@ -14,7 +14,7 @@
 #include "dbg.hpp"
 #include "globals.hpp"
 
-//#include <map>
+#include <cassert>
 #include <list>
 #include <algorithm>
 
@@ -23,29 +23,85 @@ namespace mfem
 class Runtime
 {
 private:
-
-   //typedef std::pair<void*,void*> EdgeKey;
-   //typedef std::string EdgeVal;
-   //typedef std::map<EdgeKey,EdgeVal> EdgeMap;
-   //EdgeMap map;
-   typedef std::list<void*> void_ptr_l;
-   typedef std::list<std::string> kernel_l;
-   void_ptr_l in, inout, out;
-   kernel_l kernels;
+   // Kernel struct
+   struct kernel_t
+   {
+      int n;
+      const char *file;
+      const int line;
+      const char *function;
+      const char *body;
+      const char *hash;
+      bool operator<(const kernel_t &k)
+      {
+         //if (!hash || !k.hash) { return 1; }
+         assert(hash);
+         assert(k.hash);
+         return strcmp(hash,k.hash);
+      }
+      bool operator==(const char *h)
+      {
+         assert(h);
+         assert(hash);
+         return strcmp(h,hash)==0;
+      }
+      bool operator==(const kernel_t &k) const
+      {
+         assert(hash);
+         assert(k.hash);
+         //if (!hash || !k.hash) { return 1; }
+         return strcmp(hash,k.hash)==0;
+      }
+   };
+   // Address struct
+   struct address_t
+   {
+      const void *address;
+      const kernel_t &kernel;
+      bool operator<(address_t &that) { return this->address < that.address; }
+      bool operator==(address_t &that)
+      {
+         return (this->address == that.address);
+      }
+   };
+   typedef std::list<void*> address_l;
+   typedef std::list<kernel_t> kernel_l;
+   typedef std::list<address_t> inputs_l;
+   address_l in, inout, out;
+   inputs_l input_address, output_address;
+   kernel_l known_kernels;
+   int ilk;
+   kernel_l loop_kernels;
    static Runtime runtime_singleton;
    bool ready = false;
+   bool record = false;
    bool i_am_this = false;
    Runtime(Runtime const&);
    void operator=(Runtime const&);
    static Runtime& Get() { return runtime_singleton; }
    void Setup();
+   void Start_();
+   void Stop_();
+   void For_();
+   void Loop_();
+   void Break_();
+   void Return_();
+   void DumpGraph_();
+   void Cond_(const char *test);
    void RW_(const void *p, const bool use_dev, int m=0);
    void RW_(void *p, const bool use_dev, int m=0);
 public:
-   Runtime():ready(false), i_am_this(false) { Setup(); }
+   Runtime():ready(false), i_am_this(false) { Get().Setup(); }
    ~Runtime();
    void Print(std::ostream &out = mfem::out);
    static inline bool IsReady() { return Get().ready; }
+   static inline void Start() { Get().Start_(); }
+   static inline void For() { Get().For_(); }
+   static inline void Loop() { Get().Loop_(); }
+   static inline void Stop() { Get().Stop_(); }
+   static inline void Break() { Get().Break_(); }
+   static inline void Return() { Get().Return_(); }
+   static inline void Cond(const char *test) { Get().Cond_(test); }
 
    static inline void InOutClear()
    {

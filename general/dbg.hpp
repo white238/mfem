@@ -50,7 +50,7 @@ inline void dbg_F_L_F_N_A(const char *file, const int line,
    static bool env_dbg = false;
    if (!env_ini) { env_dbg = getenv("DBG"); env_ini = true; }
    if (!env_dbg) { return; }
-   const uint8_t color = 17 + chk8(file)%216;
+   const uint8_t color = 16 + chk8(file)%216;
    fflush(stdout);
    fprintf(stdout,"\033[38;5;%dm",color);
    fprintf(stdout,"\n%30s:\033[2m%4d\033[22m: %s: \033[1m",

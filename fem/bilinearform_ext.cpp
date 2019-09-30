@@ -99,17 +99,22 @@ void PABilinearFormExtension::FormLinearSystem(const Array<int> &ess_tdof_list,
 
 void PABilinearFormExtension::Mult(const Vector &x, Vector &y) const
 {
+   //dbg("");
    Array<BilinearFormIntegrator*> &integrators = *a->GetDBFI();
 
    const int iSz = integrators.Size();
    if (elem_restrict_lex)
    {
+      //dbg("elem_restrict_lex->Mult");
       elem_restrict_lex->Mult(x, localX);
+      //dbg("localY = 0.0");
       localY = 0.0;
       for (int i = 0; i < iSz; ++i)
       {
+         //dbg("AddMultPA");
          integrators[i]->AddMultPA(localX, localY);
       }
+      //dbg("elem_restrict_lex->MultTranspose");
       elem_restrict_lex->MultTranspose(localY, y);
    }
    else
@@ -125,16 +130,21 @@ void PABilinearFormExtension::Mult(const Vector &x, Vector &y) const
 
 void PABilinearFormExtension::MultTranspose(const Vector &x, Vector &y) const
 {
+   //dbg("");
    Array<BilinearFormIntegrator*> &integrators = *a->GetDBFI();
    const int iSz = integrators.Size();
    if (elem_restrict_lex)
    {
+      //dbg("elem_restrict_lex->Mult");
       elem_restrict_lex->Mult(x, localX);
+      //dbg("localY = 0.0");
       localY = 0.0;
       for (int i = 0; i < iSz; ++i)
       {
+         //dbg("AddMultPA");
          integrators[i]->AddMultTransposePA(localX, localY);
       }
+      //dbg("elem_restrict_lex->MultTranspose");
       elem_restrict_lex->MultTranspose(localY, y);
    }
    else

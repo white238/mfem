@@ -332,7 +332,7 @@ inline void ForallWrap(const bool use_dev, const int N,
                        const char *s_body,
                        const int X=0, const int Y=0, const int Z=0)
 {
-   Runtime::Kernel(use_dev, file, line, function, s_body);
+   Runtime::Kernel(use_dev, file, line, function, s_body, N, X, Y, Z);
    if (!use_dev) { goto backend_cpu; }
 
 #if defined(MFEM_USE_RAJA) && defined(RAJA_ENABLE_CUDA)

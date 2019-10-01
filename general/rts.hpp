@@ -12,6 +12,7 @@
 #define MFEM_RTS_HPP
 
 #include "dbg.hpp"
+#include "error.hpp"
 #include "globals.hpp"
 
 #include <cassert>
@@ -35,20 +36,17 @@ private:
       const char *hash;
       bool operator<(const kernel_t &k)
       {
-         assert(hash);
-         assert(k.hash);
+         MFEM_VERIFY(k.hash && hash,"");
          return strcmp(hash,k.hash);
       }
       bool operator==(const char *h)
       {
-         assert(h);
-         assert(hash);
+         MFEM_VERIFY(hash && h,"");
          return strcmp(h,hash)==0;
       }
       bool operator==(const kernel_t &k) const
       {
-         assert(hash);
-         assert(k.hash);
+         MFEM_VERIFY(k.hash && hash,"");
          return strcmp(hash,k.hash)==0;
       }
    };
@@ -56,76 +54,89 @@ private:
    // Address struct
    struct address_t
    {
+      const int rank;
       const void *address;
       const kernel_t &kernel;
       bool operator<(address_t &that)
       {
-         //if (rank != that.rank) { return this->rank < that.rank; }
+         if (this->rank != that.rank) { return this->rank < that.rank; }
          return this->address < that.address;
       }
       bool operator==(address_t &that)
       {
-         return (this->address == that.address);
+         return (rank == that.rank && address == that.address);
       }
    };
 
-   typedef std::list<void*> address_l;
    typedef std::list<kernel_t> kernel_l;
+   typedef kernel_l::const_iterator k_it;
+
    typedef std::list<address_t> inputs_l;
-   address_l in, inout, out;
+   typedef inputs_l::const_iterator a_it;
    inputs_l input_address, output_address;
+
+   typedef std::list<void*> ptr_l;
+   typedef ptr_l::const_iterator p_it;
+   ptr_l in, out;
+
    int rank;
    kernel_l kernels;
+
    static Runtime runtime_singleton;
+
    bool ready = false;
    bool record = false;
    bool i_am_this = false;
+
+private:
+   void Setup_();
+   void DumpGraph_();
    Runtime(Runtime const&);
    void operator=(Runtime const&);
-   static Runtime& Get() { return runtime_singleton; }
-   void Setup();
+   static Runtime& RTS() { return runtime_singleton; }
+
+private:
+   int GetRank_();
+   void IncRank_();
+   void InOutClear_();
    void Start_();
-   void Stop_();
    void For_();
-   void Loop_();
-   void Break_();
    void Return_();
-   void DumpGraph_();
+   void Break_();
+   void Loop_();
    void Cond_(const char *test);
-   void RW_(const void *p, const bool use_dev, int m=0);
+   void Stop_();
    void RW_(void *p, const bool use_dev, int m=0);
+   void RW_(const void *p, const bool use_dev, int m=0);
+   void InOutPushBack_();
+
 public:
-   Runtime():ready(false), i_am_this(false) { Get().Setup(); }
+   Runtime():ready(false), i_am_this(false) { RTS().Setup_(); }
    ~Runtime();
-   void Print(std::ostream &out = mfem::out);
-   static inline bool IsReady() { return Get().ready; }
-   static inline void Start() { Get().Start_(); }
-   static inline void For() { Get().For_(); }
-   static inline void Loop() { Get().Loop_(); }
-   static inline void Stop() { Get().Stop_(); }
-   static inline void Break() { Get().Break_(); }
-   static inline void Return() { Get().Return_(); }
-   static inline void Cond(const char *test) { Get().Cond_(test); }
 
-   static inline void InOutClear()
-   {
-      Get().in.clear();
-      Get().out.clear();
-      Get().inout.clear();
-   }
+public:
+   static inline bool IsReady() { return RTS().ready; }
+   static inline void Start() { RTS().Start_(); }
+   static inline void For() { RTS().For_(); }
+   static inline void Loop() { RTS().Loop_(); }
+   static inline void Stop() { RTS().Stop_(); }
+   static inline void Break() { RTS().Break_(); }
+   static inline void Return() { RTS().Return_(); }
+   static inline void Cond(const char *test) { RTS().Cond_(test); }
+   static inline void InOutClear() { RTS().InOutClear_(); }
+   static inline void InOutPushBack() { RTS().InOutPushBack_(); }
+   static void Kernel(const bool, const char*, const int, const char*,
+                      const char*, const int N=0,
+                      const int X=0, const int Y=0, const int Z=0);
+   static void Memcpy(const char*, void*, const void*, size_t);
 
+public:
    template <typename T> static const T *R(const T *p, const bool use_dev)
-   { Get().RW_(p,use_dev,0); return p; }
+   { RTS().RW_(p,use_dev,0); return p; }
    template <typename T> static T *W(T *p, const bool use_dev)
-   { Get().RW_(p,use_dev,1); return p; }
+   { RTS().RW_(p,use_dev,1); return p; }
    template <typename T> static T *RW(T *p, const bool use_dev)
-   { Get().RW_(p,use_dev,2); return p; }
-   static void Sync();
-   static void Kernel(const bool use_dev,
-                      const char *file, const int line,
-                      const char *function, const char *s_body);
-   static void Memcpy(const char *function, void *dst, const void *src,
-                      size_t bytes);
+   { RTS().RW_(p,use_dev,2); return p; }
 };
 
 } // mfem

@@ -369,12 +369,6 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    converged = 0;
    final_iter = max_iter;
    Runtime::Start();
-   b.Read();
-   d.Read();
-   r.Read();
-   z.Read();
-   x.Write();
-   Runtime::For();
    for (i = 1; true; )
    {
       dbg("\033[7mCG iter start");

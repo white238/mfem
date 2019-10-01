@@ -652,7 +652,6 @@ inline void Memory<T>::Sync(const Memory &other) const
    }
    flags = (flags & ~(VALID_HOST | VALID_DEVICE)) |
            (other.flags & (VALID_HOST | VALID_DEVICE));
-   Runtime::Sync();
 }
 
 template <typename T>

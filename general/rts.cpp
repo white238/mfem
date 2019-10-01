@@ -17,6 +17,7 @@
 #include <string>
 #include <unordered_set>
 #include <fstream>
+#include <iomanip>
 
 namespace mfem
 {
@@ -32,12 +33,10 @@ Runtime::~Runtime()
 void Runtime::Setup()
 {
    InOutClear();
-   ilk = 0;
-   known_kernels.clear();
+   rank = 0;
+   kernels.clear();
    input_address.clear();
    output_address.clear();
-   known_kernels.clear();
-   loop_kernels.clear();
    // Copy all data members from the global 'runtime_singleton' into '*this'.
    std::memcpy(this, &Get(), sizeof(Runtime));
    i_am_this = true;
@@ -46,12 +45,14 @@ void Runtime::Setup()
 void Runtime::Start_()
 {
    if (ready) {return;}
+   Runtime::InOutClear();
    MFEM_VERIFY(!ready && !record,"");
    dbg("\033[7;1;37mRuntime::Start");
    record = true;
-   loop_kernels.push_back({-1,"",0,"","","<<<Start>>>"});
+   kernels.push_back({-1,"",0,"","","<<<Start>>>"});
 }
 
+// *****************************************************************************
 void Runtime::DumpGraph_()
 {
    dbg("\033[31;7;1mDumpGraph_");
@@ -66,19 +67,23 @@ void Runtime::DumpGraph_()
    graph_of << "node [style = filled, shape = circle];\n" << std::endl;
    kernel_l::const_iterator k;
    // Kernels
-   //kernel_l all_kernels = loop_kernels;
    /*dbg("all_kernels:");
-   for (auto k : all_kernels)
+   for (auto k : loop_kernels)
+   { if (k.n < 0) { continue; } std::cout << k.n<<":"<<k.hash << "\n"; }*/
+   int nb_kernels = 0;
+   for (k=kernels.begin(); k != kernels.end(); ++k)
    {
-      if (k.n < 0) { continue; } std::cout << k.n<<":"<<k.hash << "\n";
-   }*/
-   for (k=loop_kernels.begin(); k != loop_kernels.end(); ++k)
-   {
-      if (k->n < 0) { continue; }
-      graph_of << "kernel_" << k->n <<" [label=\"";
+      if (k->rank < 0) { continue; }
+      graph_of << "kernel_" << k->rank <<" [label=\"";
       graph_of << k->hash;
       graph_of << "\" color=\"#CCDDCC\"]" <<  std::endl;
+      nb_kernels += 1;
    }
+   /*
+   for (int k = 1; k < nb_kernels; k++)
+   { graph_of << "kernel_" << (2*k-1) << " -> " << "kernel_" << (2*k+1) << std::endl;
+   }*/
+
    // In/Out
    graph_of <<  std::endl;
    inputs_l::const_iterator a;
@@ -88,93 +93,130 @@ void Runtime::DumpGraph_()
    all.merge(out);
    all.sort();
    all.unique();
+   const char *ADDRS = "ptr_";
+   // All inputs and outputs
    for (a=all.begin(); a != all.end(); ++a)
    {
-      graph_of << "address_" << a->address << " [label=<<B>";
+      graph_of << ADDRS << a->address << " [label=<<B>";
       graph_of << a->address;
       graph_of << "</B>> color=\"#DD8888\"]" <<  std::endl;
    }
    // Inputs
    graph_of <<  std::endl;
-   dbg("input_address:");
-   for (auto v : input_address) { std::cout << v.address << "\n"; }
-   for (a=input_address.begin(); a != input_address.end(); ++a)
+   /*dbg("input_address:");
+   for (auto v : input_address) { std::cout << v.address << "\n"; }*/
+   inputs_l in2 = input_address;
+   //in2.sort();
+   //in2.unique();
+   for (a=in2.begin(); a != in2.end(); ++a)
    {
-      const int n = a->kernel.n;
-      dbg("Inputs n=%d",n);
-      graph_of << "address_" << a->address << " -> " << "kernel_" << n << std::endl;
+      const int n = a->kernel.rank;
+      graph_of << ADDRS << a->address << " -> " << "kernel_" << n <<
+               std::endl;
    }
    // Outputs
    graph_of <<  std::endl;
-
-   dbg("output_address:");
-   for (auto v : output_address) { std::cout << v.address << "\n"; }
-   for (a=output_address.begin(); a != output_address.end(); ++a)
+   /*dbg("output_address:");
+   for (auto v : output_address) { std::cout << v.address << "\n"; }*/
+   inputs_l out2 = output_address;
+   //out2.sort();
+   //out2.unique();
+   for (a=out2.begin(); a != out2.end(); ++a)
    {
-      const int n = a->kernel.n;
-      dbg("Outputs n=%d",n);
-      graph_of << "kernel_" << n <<  " -> " << "address_" << a->address << std::endl;
+      const int n = a->kernel.rank;
+      graph_of << "kernel_" << n <<  " -> " << ADDRS << a->address <<
+               std::endl;
    }
-   dbg("done");
    graph_of << "}" << std::endl;
    graph_of.close();
    exit(0);
 }
 
-
+// *****************************************************************************
 void Runtime::For_()
 {
-   if (ready) {return;}
-   dbg("\033[7;1;37mRuntime::For");
-   loop_kernels.push_back({-1,"",0,"","","<<<For>>>"});
+   if (!Get().record) {return;}
+
+   const int rank = Get().rank++;
+   std::stringstream name; name << rank << "_FOR";
+   kernels.push_back({rank,"",0,"","",strdup(name.str().c_str())});
+   const kernel_t &k = Get().kernels.back();
+   for (address_l::const_iterator i=in.begin(); i != in.end(); ++i)
+   { Get().input_address.push_back(address_t{*i, k}); }
+   for (address_l::const_iterator i=out.begin(); i != out.end(); ++i)
+   { Get().output_address.push_back(address_t{*i, k}); }
+   for (address_l::const_iterator i=inout.begin(); i != inout.end(); ++i)
+   {
+      Get().input_address.push_back(address_t{*i, k});
+      Get().output_address.push_back(address_t{*i, k});
+   }
+   InOutClear();
 }
 
+// *****************************************************************************
 void Runtime::Loop_()
 {
    if (ready) {return;}
+   InOutClear();
    dbg("\033[7;1;37mRuntime::Loop");
    record = false; // end of recording
    ready = true; // loop should be ready
-   loop_kernels.push_back({-1,"",0,"","","<<<Loop>>>"});
+   kernels.push_back({-1,"",0,"","","<<<Loop>>>"});
    DumpGraph_();
 }
 
+// *****************************************************************************
 void Runtime::Return_()
 {
    dbg("");
-   loop_kernels.push_back({-1,"",0,"","","<<<Return>>>"});
+   kernels.push_back({-1,"",0,"","","<<<Return>>>"});
 }
 
+// *****************************************************************************
 void Runtime::Break_()
 {
    if (ready) {return;}
    dbg("\033[7;1;37mRuntime::Break");
    MFEM_VERIFY(!ready && !record,"");
-   loop_kernels.push_back({-1,"",0,"","","<<<Break>>>"});
+   kernels.push_back({-1,"",0,"","","<<<Break>>>"});
 }
 
+// *****************************************************************************
 void Runtime::Cond_(const char *test)
 {
    if (ready) {return;}
    dbg("\033[7;1;37mRuntime::Cond: %s",test);
    MFEM_VERIFY(record,"");
-   std::string cond("<<<Cond>>>(");
-   cond.reserve(1024);
-   cond += test;
-   cond += ")";
-   loop_kernels.push_back({-1,"",0,"","", strdup(cond.c_str())});
+   const int rank = Get().rank++;
+   std::stringstream cond;
+   cond << rank << "_COND(" << test << ")";
+   kernels.push_back({rank,"",0,"","", strdup(cond.str().c_str())});
+   const kernel_t &k = kernels.back();
+   for (address_l::const_iterator i=in.begin(); i != in.end(); ++i)
+   { Get().input_address.push_back(address_t{*i, k}); }
+   for (address_l::const_iterator i=out.begin(); i != out.end(); ++i)
+   { Get().output_address.push_back(address_t{*i, k}); }
+   for (address_l::const_iterator i=inout.begin(); i != inout.end(); ++i)
+   {
+      Get().input_address.push_back(address_t{*i, k});
+      Get().output_address.push_back(address_t{*i, k});
+   }
+   InOutClear();
 }
 
+// *****************************************************************************
 void Runtime::Stop_()
 {
    if (ready) {return;}
    dbg("\033[7;1;37mRuntime::Stop");
-   loop_kernels.push_back({-1,"",0,"","","<<<Stop>>>"});
+   kernels.push_back({-1,"",0,"","","<<<Stop>>>"});
 }
 
 
+// *****************************************************************************
 void Runtime::Print(std::ostream &out) { dbg(""); }
 
+// *****************************************************************************
 void Runtime::RW_(void *p, const bool use_dev, int m)
 {
    if (!use_dev) { return; }
@@ -213,11 +255,14 @@ void Runtime::RW_(const void *p, const bool use_dev, int m)
 
 void Runtime::Sync() { printf("\033[33mS\033[m"); fflush(0); }
 
+
+
+// *****************************************************************************
 void Runtime::Kernel(const bool use_dev,
                      const char *file, const int line,
                      const char *function, const char *s_body)
 {
-   if (!use_dev) { InOutClear(); return; }
+   if (!use_dev || !Get().record) { InOutClear(); return; }
    if (!Device::IsEnabled()) { InOutClear(); return; }
    //printf("\n\033[33m[kernel] '%s' (%s:%d)\033[m", function, file, line);
    //printf("\n\033[33m[kernel] %s\033[m", s_body);
@@ -225,85 +270,63 @@ void Runtime::Kernel(const bool use_dev,
    address_l &in = Get().in;
    address_l &out = Get().out;
    address_l &inout = Get().inout;
-   kernel_l &kkernels = Get().known_kernels;
-   kernel_l &lkernels = Get().loop_kernels;
+   kernel_l &kernels = Get().kernels;
 
    // Add kernel if we haven't seen him yet
    std::stringstream kernal_ss;
-   kernal_ss << Get().ilk << "_" << file << ":" << line << ":" << function;
+   const int rank = Get().rank;
+
+   kernal_ss << rank << "_" << file << ":" << line << ":" << function;
    std::string kernel_s = kernal_ss.str();
    const char *hash = kernel_s.c_str();
-   auto it = std::find(kkernels.begin(), kkernels.end(), hash);
-   if (it == kkernels.end())
+
+   auto ik = std::find(kernels.begin(), kernels.end(), hash);
+   if (ik == kernels.end())
    {
       //printf("\n\033[33m[kernel] New kernel (\033[1;33m%s)\033[m", hash);
-      kernel_t k{-1,file, line, function, s_body, strdup(hash)};
-      kkernels.push_back(k);
-      if (Get().record)
-      {
-         lkernels.push_back(k);
-         lkernels.back().n = Get().ilk;
-      }
+      kernel_t k{rank, file, line, function, s_body, strdup(hash)};
+      kernels.push_back(k);
    }
-   else
+   const kernel_t &k = Get().kernels.back();
+
+   address_l::const_iterator i;
+   for (i=in.begin(); i != in.end(); ++i)
    {
-      //printf("\n\033[33m[kernel] Known kernel (%s)\033[m", hash);
-      if (Get().record)
-      {
-         lkernels.push_back(*it);
-         lkernels.back().n = Get().ilk;
-      }
+      //printf("\n\t\033[33m[kernel] \033[32m%p\033[m", rank_address);
+      Get().input_address.push_back(address_t{*i, k});
    }
-
-   if (Get().record)
+   for (i=out.begin(); i != out.end(); ++i)
    {
-      address_l::const_iterator i;
-      const kernel_t &k = lkernels.back();
-
-      for (i=in.begin(); i != in.end(); ++i)
-      {
-         address_t a{*i, k};
-         //printf("\n\t\033[33m[kernel] \033[32m%p\033[m", *i);
-         Get().input_address.push_back(a);
-      }
-
-      for (i=out.begin(); i != out.end(); ++i)
-      {
-         address_t a{*i, k};
-         //printf("\n\t\033[33m[kernel] \033[35m%p\033[m", *i);
-         Get().output_address.push_back(a);
-      }
-
-
-      for (i=inout.begin(); i != inout.end(); ++i)
-      {
-         address_t a{*i, k};
-         //printf("\n\t\033[33m[kernel] \033[31m%p\033[m", *i);
-         Get().input_address.push_back(a);
-         Get().output_address.push_back(a);
-      }
+      //printf("\n\t\033[33m[kernel] \033[35m%p\033[m", rank_address);
+      Get().output_address.push_back(address_t{*i, k});
    }
-   if (Get().record) { Get().ilk++; }
+   for (i=inout.begin(); i != inout.end(); ++i)
+   {
+      //printf("\n\t\033[33m[kernel] \033[31m%p\033[m", rank_i_address);
+      Get().input_address.push_back(address_t{*i, k});
+      Get().output_address.push_back(address_t{*i, k});
+   }
+   Get().rank++;
    InOutClear();
 }
 
+// *****************************************************************************
 void Runtime::Memcpy(const char *function, void *dst, const void *src,
                      size_t bytes)
 {
    /*printf("\n\033[33m[%s] \033[32m%p\033[m => \033[35m%p\033[m (%ld bytes)\033[m",
           function, src, dst, bytes);*/
-   if (Get().record)
-   {
-      std::stringstream kernal_ss;
-      kernal_ss << Get().ilk << "_" << function;
-      std::string kernel_s = kernal_ss.str();
-      const char *hash = kernel_s.c_str();
-      const kernel_t k{Get().ilk++,"", 0, "", "", strdup(hash)};
-      Get().loop_kernels.push_back(k);
-      const kernel_t &back = Get().loop_kernels.back();
-      Get().input_address.push_back(address_t{src, back});
-      Get().output_address.push_back(address_t{dst, back});
-   }
+   if (!Get().record) {return;}
+
+   const int rank = Get().rank++;
+   std::stringstream kernal_ss;
+   kernal_ss << rank << "_" << function;
+   std::string kernel_s = kernal_ss.str();
+   const char *hash = kernel_s.c_str();
+   Get().kernels.push_back(kernel_t{rank,"",0,"","",strdup(hash)});
+   const kernel_t &k = Get().kernels.back();
+   Get().input_address.push_back(address_t{src, k});
+   Get().output_address.push_back(address_t{dst, k});
    InOutClear();
 }
 

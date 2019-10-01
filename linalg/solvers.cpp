@@ -292,6 +292,7 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    int i;
    double r0, den, nom, nom0, betanom, alpha, beta;
    dbg("");
+   //Runtime::Start();
    if (iterative_mode)
    {
       dbg("iterative_mode, oper->Mult");
@@ -368,6 +369,12 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    converged = 0;
    final_iter = max_iter;
    Runtime::Start();
+   b.Read();
+   d.Read();
+   r.Read();
+   z.Read();
+   x.Write();
+   Runtime::For();
    for (i = 1; true; )
    {
       dbg("\033[7mCG iter start");
@@ -396,8 +403,10 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
          mfem::out << "   Iteration : " << setw(3) << i << "  (B r, r) = "
                    << betanom << '\n';
       }
-
-      Runtime::Cond("betanom < r0)");
+      {
+         x.Write();
+         Runtime::Cond("betanom < r0)"); // will grab the last Read from Dot
+      }
       if (betanom < r0)
       {
          if (print_level == 2)
@@ -438,7 +447,10 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       dbg("Dot(d, z)");
       den = Dot(d, z);
       MFEM_ASSERT(IsFinite(den), "den = " << den);
-      //Runtime::Cond("den <= 0.0");
+      {
+         x.Write();
+         Runtime::Cond("den <= 0.0)"); // will grab the last Read from Dot
+      }
       if (den <= 0.0)
       {
          if (Dot(d, d) > 0.0 && print_level >= 0)
@@ -455,7 +467,6 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       }
       nom = betanom;
       //dbg("CG end of iter");
-      x.Write();
       Runtime::Loop();
    }
    if (print_level >= 0 && !converged)

@@ -22,11 +22,12 @@ namespace mfem
 {
 class Runtime
 {
+
 private:
    // Kernel struct
    struct kernel_t
    {
-      int n;
+      const int rank;
       const char *file;
       const int line;
       const char *function;
@@ -34,7 +35,6 @@ private:
       const char *hash;
       bool operator<(const kernel_t &k)
       {
-         //if (!hash || !k.hash) { return 1; }
          assert(hash);
          assert(k.hash);
          return strcmp(hash,k.hash);
@@ -49,29 +49,33 @@ private:
       {
          assert(hash);
          assert(k.hash);
-         //if (!hash || !k.hash) { return 1; }
          return strcmp(hash,k.hash)==0;
       }
    };
+
    // Address struct
    struct address_t
    {
       const void *address;
       const kernel_t &kernel;
-      bool operator<(address_t &that) { return this->address < that.address; }
+      bool operator<(address_t &that)
+      {
+         //if (rank != that.rank) { return this->rank < that.rank; }
+         return this->address < that.address;
+      }
       bool operator==(address_t &that)
       {
          return (this->address == that.address);
       }
    };
+
    typedef std::list<void*> address_l;
    typedef std::list<kernel_t> kernel_l;
    typedef std::list<address_t> inputs_l;
    address_l in, inout, out;
    inputs_l input_address, output_address;
-   kernel_l known_kernels;
-   int ilk;
-   kernel_l loop_kernels;
+   int rank;
+   kernel_l kernels;
    static Runtime runtime_singleton;
    bool ready = false;
    bool record = false;

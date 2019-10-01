@@ -926,7 +926,7 @@ static double cuVectorDot(const int N, const double *X, const double *Y)
    MFEM_GPU_CHECK(cudaGetLastError());
    Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "cuVectorDot");
    const double *h_dot = buf.Read(MemoryClass::HOST, dot_sz);
-   Runtime::InOutClear(); // Clear this last read from captured in/out
+   // There is this last read that will be captured as some input
    double dot = 0.0;
    for (int i = 0; i < dot_sz; i++) { dot += h_dot[i]; }
    return dot;

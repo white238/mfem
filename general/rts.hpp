@@ -18,6 +18,7 @@
 #include <cassert>
 #include <list>
 #include <algorithm>
+#include <unordered_map>
 
 namespace mfem
 {
@@ -78,6 +79,7 @@ private:
    typedef std::list<void*> ptr_l;
    typedef ptr_l::const_iterator p_it;
    ptr_l in, out;
+   std::unordered_map<const void*,const char*> names;
 
    int rank;
    kernel_l kernels;
@@ -109,6 +111,27 @@ private:
    void RW_(void *p, const bool use_dev, int m=0);
    void RW_(const void *p, const bool use_dev, int m=0);
    void InOutPushBack_();
+   template <typename T> T Name_(const char *name, T adrs)
+   {
+      if (ready) { return adrs;}
+      if (!record) { return adrs;}
+      dbg("\033[7;1;37mRuntime::Name Insert %p %s %d", adrs, name, rank);
+      auto name_it = names.find(adrs);
+      if (name_it == names.end())
+      {
+         auto res = names.emplace(adrs, strdup(name));
+         if (res.second == false) // was already in the map
+         {
+            dbg("\033[7;1;31mImpossible!");
+         }
+      }
+      else
+      {
+         dbg("\033[7;1;31mRuntime::Name adrs %p was %s!", adrs, name_it->second);
+      }
+      return adrs;
+   }
+   const char *Name_(const void *adrs/*, const int rank*/);
 
 public:
    Runtime():ready(false), i_am_this(false) { RTS().Setup_(); }
@@ -125,6 +148,8 @@ public:
    static inline void Cond(const char *test) { RTS().Cond_(test); }
    static inline void InOutClear() { RTS().InOutClear_(); }
    static inline void InOutPushBack() { RTS().InOutPushBack_(); }
+   template <typename T>
+   static inline T Name(const char *name, T adrs) { return RTS().Name_(name, adrs); }
    static void Kernel(const bool, const char*, const int, const char*,
                       const char*, const int N=0,
                       const int X=0, const int Y=0, const int Z=0);

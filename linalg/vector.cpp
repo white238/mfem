@@ -921,11 +921,14 @@ static double cuVectorDot(const int N, const double *X, const double *Y)
    const int dot_sz = (N%tpb)==0? (N/tpb) : (1+N/tpb);
    cuda_reduce_buf.SetSize(dot_sz);
    Memory<double> &buf = cuda_reduce_buf.GetMemory();
-   double *d_dot = buf.Write(MemoryClass::CUDA, dot_sz);
+   double *d_dot = Runtime::Name("d_dot",buf.Write(MemoryClass::CUDA, dot_sz));
    cuKernelDot<<<gridSize,blockSize>>>(N, d_dot, X, Y);
    MFEM_GPU_CHECK(cudaGetLastError());
    Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "cuVectorDot");
-   const double *h_dot = buf.Read(MemoryClass::HOST, dot_sz);
+
+   //Runtime::Name("h_dot", (void*)h_dot);
+   const double *h_dot = Runtime::Name("h_dot", buf.Read(MemoryClass::HOST,
+                                                         dot_sz));
    // There is this last read that will be captured as some input
    double dot = 0.0;
    for (int i = 0; i < dot_sz; i++) { dot += h_dot[i]; }

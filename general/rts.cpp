@@ -42,6 +42,7 @@ void Runtime::Setup_()
    // Copy all data members from the global 'runtime_singleton' into '*this'.
    std::memcpy(this, &RTS(), sizeof(Runtime));
    i_am_this = true;
+   names.clear();
 }
 
 // *****************************************************************************
@@ -82,7 +83,8 @@ void Runtime::DumpGraph_()
    for (a_it a=all.begin(); a != all.end(); ++a)
    {
       graph_of << ADDRS << a->rank << "_" << a->address
-               << " [label=<<B>" << a->rank << "_" << a->address
+               << " [label=<<B>" //<< a->rank << "_"
+               << this->Name_(a->address/*, a->rank*/)
                << "</B>> color=\"#DD8888\"]"
                << std::endl;
    }
@@ -293,6 +295,20 @@ void Runtime::RW_(void *p, const bool use_dev, int m)
 // *****************************************************************************
 void Runtime::RW_(const void *p, const bool use_dev, int m)
 { return RW_(const_cast<void*>(p), use_dev, m); }
+
+// *****************************************************************************
+const char* Runtime::Name_(const void *adrs/*, const int rank*/)
+{
+
+   //const void *a = (void*) (((char*)adrs)+rank);
+   auto name_it = names.find(adrs);
+   if (name_it != names.end())
+   {
+      dbg("\033[7;1;37mRuntime::Name: Get %p %s", adrs, name_it->second);
+      return strdup(name_it->second);
+   }
+   return "???";
+}
 
 // *****************************************************************************
 void Runtime::Kernel(const bool use_dev,

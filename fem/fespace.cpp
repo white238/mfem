@@ -2720,8 +2720,8 @@ void ElementRestriction::Mult(const Vector& x, Vector& y) const
    const bool t = byvdim;
    auto d_offsets = offsets.Read();
    auto d_indices = indices.Read();
-   auto d_x = Reshape(x.Read(), t?vd:ndofs, t?ndofs:vd);
-   auto d_y = Reshape(y.Write(), nd, vd, ne);
+   auto d_x = Reshape(Runtime::Name("x", x.Read()), t?vd:ndofs, t?ndofs:vd);
+   auto d_y = Reshape(Runtime::Name("y", y.Write()), nd, vd, ne);
    MFEM_FORALL(i, ndofs,
    {
       const int offset = d_offsets[i];
@@ -2744,10 +2744,10 @@ void ElementRestriction::MultTranspose(const Vector& x, Vector& y) const
    const int nd = dof;
    const int vd = vdim;
    const bool t = byvdim;
-   auto d_offsets = offsets.Read();
-   auto d_indices = indices.Read();
-   auto d_x = Reshape(x.Read(), nd, vd, ne);
-   auto d_y = Reshape(y.Write(), t?vd:ndofs, t?ndofs:vd);
+   auto d_offsets = Runtime::Name("d_offsets", offsets.Read());
+   auto d_indices = Runtime::Name("d_indices", indices.Read());
+   auto d_x = Reshape(Runtime::Name("x", x.Read()), nd, vd, ne);
+   auto d_y = Reshape(Runtime::Name("y", y.Write()), t?vd:ndofs, t?ndofs:vd);
    MFEM_FORALL(i, ndofs,
    {
       const int offset = d_offsets[i];

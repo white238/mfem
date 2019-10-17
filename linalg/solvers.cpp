@@ -291,6 +291,8 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
 {
    int i;
    double r0, den, nom, nom0, betanom, alpha, beta;
+   Array<double> btnm(1), dn(1);
+   Array<int*> iter(1); iter[0]=&i;
    dbg("");
    //Runtime::Start();
    if (iterative_mode)
@@ -368,7 +370,14 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    // start iteration
    converged = 0;
    final_iter = max_iter;
+
    Runtime::Start();
+   Runtime::Name("b", b.Read());
+   Runtime::Name("x", x.Read());
+   Runtime::Name("d", d.Read());
+   Runtime::Name("r", r.Read());
+   Runtime::Name("z", z.Read());
+   Runtime::InOutClear();
    for (i = 1; true; )
    {
       dbg("\033[7mCG iter start");
@@ -389,6 +398,8 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       {
          dbg("Dot(r, r)");
          betanom = Dot(r, r);
+         Runtime::Name("betanom", btnm.Write());
+         Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "eq");
       }
       MFEM_ASSERT(IsFinite(betanom), "betanom = " << betanom);
 
@@ -398,7 +409,8 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
                    << betanom << '\n';
       }
       {
-         x.Write();
+         btnm.Read();
+         iter.Write();
          Runtime::Cond("betanom < r0)"); // will grab the last Read from Dot
       }
       if (betanom < r0)
@@ -417,8 +429,11 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
          Runtime::Stop();
          break;
       }
-
-      //Runtime::Cond("++i > max_iter");
+      {
+         Runtime::Name("iter", iter.Read());
+         x.Write();
+         Runtime::Cond("++i > max_iter");
+      }
       if (++i > max_iter)
       {
          Runtime::Break();
@@ -440,8 +455,11 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       oper->Mult(d, z);       //  z = A d
       dbg("Dot(d, z)");
       den = Dot(d, z);
+      Runtime::Name("dn", dn.Write());
+      Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "eq");
       MFEM_ASSERT(IsFinite(den), "den = " << den);
       {
+         dn.Read();
          x.Write();
          Runtime::Cond("den <= 0.0)"); // will grab the last Read from Dot
       }
@@ -462,6 +480,8 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       nom = betanom;
       //dbg("CG end of iter");
       Runtime::Loop();
+#warning return
+      return;
    }
    if (print_level >= 0 && !converged)
    {

@@ -454,11 +454,11 @@ static void SmemPADiffusionApply2D(const int NE,
    constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
    MFEM_VERIFY(D1D <= MD1, "");
    MFEM_VERIFY(Q1D <= MQ1, "");
-   auto b = Reshape(_b.Read(), Q1D, D1D);
-   auto g = Reshape(_g.Read(), Q1D, D1D);
-   auto op = Reshape(_op.Read(), Q1D*Q1D, 3, NE);
-   auto x = Reshape(_x.Read(), D1D, D1D, NE);
-   auto y = Reshape(_y.ReadWrite(), D1D, D1D, NE);
+   auto b = Reshape(Runtime::Name("B", _b.Read()), Q1D, D1D);
+   auto g = Reshape(Runtime::Name("G", _g.Read()), Q1D, D1D);
+   auto op = Reshape(Runtime::Name("Diff_D", _op.Read()), Q1D*Q1D, 3, NE);
+   auto x = Reshape(Runtime::Name("Diff_X", _x.Read()), D1D, D1D, NE);
+   auto y = Reshape(Runtime::Name("Diff_Y", _y.ReadWrite()), D1D, D1D, NE);
    MFEM_FORALL_2D(e, NE, Q1D, Q1D, NBZ,
    {
       const int tidz = MFEM_THREAD_ID(z);

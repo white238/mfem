@@ -29,7 +29,7 @@ else
    SOPREFIX = install_
 endif
 
-SEQ_MINIOBJS = drl4amr.o
+SEQ_MINIOBJS = drl4amr.o sedov.o
 PAR_MINIOBJS =
 ifeq ($(MFEM_USE_MPI),NO)
    MINIOBJS = $(SEQ_MINIOBJS)

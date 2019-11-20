@@ -14,17 +14,20 @@ using namespace mfem;
   printf("\n\033[33m"); printf(__VA_ARGS__); printf("\033[m"); fflush(0); }}
 
 // *****************************************************************************
-enum TestFunction {STEPS, ZZFAIL};
+enum TestFunction {STEPS, ZZFAIL, SEDOV};
 
 static int discs;
 static double theta;
 static Array<double> offsets;
 constexpr int nb_discs_max = 6;
 constexpr double sharpness = 100.0;
-static TestFunction test_func = STEPS;
+static TestFunction test_func = SEDOV;
+
+static double x0_sedov(const Vector &x) { return 0.0; }
 
 static double x0_steps(const Vector &x)
 {
+
    double result = 0.0;
    const double t = x[0] + tan(theta)*x[1];
    for (double o: offsets) { result += 1.0 + tanh(sharpness*(o - t)); }
@@ -54,6 +57,7 @@ static double x0(const Vector &x)
    switch (test_func)
    {
       case STEPS: return x0_steps(x);
+      case SEDOV: return x0_sedov(x);
       case ZZFAIL: return x0_zzfail(x);
    }
    printf("unknown function: %d\n",test_func);

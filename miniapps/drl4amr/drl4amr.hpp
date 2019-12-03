@@ -9,8 +9,8 @@ using namespace mfem;
 class Drl4Amr
 {
 private:
-   const int nx = 8;
-   const int ny = 8;
+   const int nx = 2;
+   const int ny = 2;
    const int max_depth = 2;
    const int max_dofs = 5000;
    const Element::Type quads = Element::QUADRILATERAL;
@@ -24,7 +24,7 @@ private:
    const int visport = 19916;
    const int visw = 480;
    const int vish = 480;
-   socketstream vis[6];
+   socketstream vis[7];
 
    const int order;
    const long int seed;
@@ -40,7 +40,7 @@ private:
    BilinearFormIntegrator *integ;
    FunctionCoefficient xcoeff;
    GridFunction solution, elem_id, elem_depth;
-   Vector action_elem_map;
+   Vector image_action_map, action_elem_map;
    Vector solution_image, elem_id_image, elem_depth_image;
    FiniteElementSpace flux_fespace;
    ZienkiewiczZhuEstimator estimator;
@@ -66,6 +66,7 @@ public:
    double GetNorm();
    double *GetImage();
    double *GetImageToElementMap();
+   double *GetImageToActionMap();
    double *GetActionToElementMap();
    double *GetDepthField();
 

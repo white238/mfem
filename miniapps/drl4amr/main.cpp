@@ -19,8 +19,9 @@ int main(int argc, char *argv[])
       sim.Refine(e);
       sim.GetImage();
       sim.GetImageToElementMap();
-      sim.GetDepthField();
+      sim.GetImageToActionMap();
       sim.GetActionToElementMap();
+      sim.GetDepthField();
    }
    return 0;
 }

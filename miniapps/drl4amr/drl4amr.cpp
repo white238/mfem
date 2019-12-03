@@ -83,6 +83,7 @@ Drl4Amr::Drl4Amr(int order, int seed):
    solution(&h1fes),
    elem_id(&image_fes),
    elem_depth(&image_fes),
+   image_action_map(GetImageSize()),
    action_elem_map(GetActionSize()),
    solution_image(GetImageSize()),
    elem_id_image(GetImageSize()),
@@ -113,6 +114,7 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[3].open(vishost, visport);
       vis[4].open(vishost, visport);
       vis[5].open(vishost, visport);
+      vis[6].open(vishost, visport);
    }
 
    // Initialize theta, offsets and x from x0_coeff
@@ -187,15 +189,29 @@ Drl4Amr::Drl4Amr(int order, int seed):
              << "keys RjgAm" << endl;
    }
 
+
    if (visualization && vis[5].good())
+   {
+      image_action_map = 0.0;
+      GridFunction gf(&image_fes, image_action_map.GetData());
+      vis[5].precision(8);
+      vis[5] << "solution" << endl << image_mesh << gf << flush;
+      vis[5] << "window_title '" << "Image to Action" << "'" << endl
+             << "window_geometry "
+             <<  (2 * vish + border) << " " << vish
+             << " " << visw << " " << vish << endl
+             << "keys RjgAm" << endl;
+   }
+
+   if (visualization && vis[6].good())
    {
       action_elem_map = 0.0;
       GridFunction gf(&action_fes, action_elem_map.GetData());
-      vis[5].precision(8);
-      vis[5] << "solution" << endl << action_mesh << gf << flush;
-      vis[5] << "window_title '" << "Action to Elem" << "'" << endl
+      vis[6].precision(8);
+      vis[6] << "solution" << endl << action_mesh << gf << flush;
+      vis[6] << "window_title '" << "Action to Elem" << "'" << endl
              << "window_geometry "
-             <<  (4 * vish + border) << " " << vish
+             <<  (3 * vish + border) << " " << vish
              << " " << visw << " " << vish << endl
              << "keys RjgAm" << endl;
    }
@@ -381,6 +397,25 @@ double *Drl4Amr::GetImageToElementMap()
    return elem_id.GetData();
 }
 
+double *Drl4Amr::GetImageToActionMap()
+{
+   const int nix = GetImageX(),  niy = GetImageY(),
+             nax = GetActionX(), nay = GetActionY();
+   for (int i = 0; i < image_mesh.GetNE(); i++)
+   {
+      const int row_a = i / nix / order,
+                col_a = i % niy / order;
+      image_action_map(i) = row_a * nax + col_a;
+   }
+   if (visualization && vis[5].good())
+   {
+      GridFunction gf(&image_fes, image_action_map.GetData());
+      vis[5] << "solution" << endl << image_mesh << gf << flush;
+      fflush(0);
+   }
+   return image_action_map.GetData();
+}
+
 double *Drl4Amr::GetActionToElementMap()
 {
    GridFunction id(&l2fes);
@@ -394,10 +429,10 @@ double *Drl4Amr::GetActionToElementMap()
       }
    }
    GetImage(id, action_elem_map, false);
-   if (visualization && vis[5].good())
+   if (visualization && vis[6].good())
    {
       GridFunction gf(&action_fes, action_elem_map.GetData());
-      vis[5] << "solution" << endl << action_mesh << gf << flush;
+      vis[6] << "solution" << endl << action_mesh << gf << flush;
       fflush(0);
    }
    return action_elem_map.GetData();

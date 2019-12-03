@@ -478,10 +478,10 @@ extern "C" {
 
    double *GetImage(Drl4Amr *ctrl) { return ctrl->GetImage(); }
    double *GetIdField(Drl4Amr *ctrl) { return ctrl->GetImageToElementMap(); }
+   double *GetImageToActionMap(Drl4Amr *ctrl)
+   { return ctrl->GetImageToActionMap(); }
    double *GetActionToElementMap(Drl4Amr *ctrl)
-   {
-      return ctrl->GetActionToElementMap();
-   }
+   { return ctrl->GetActionToElementMap(); }
    double *GetDepthField(Drl4Amr *ctrl) { return ctrl->GetDepthField(); }
 
    int GetImageX(Drl4Amr *ctrl) { return ctrl->GetImageX(); }

@@ -24,22 +24,23 @@ private:
    const int visport = 19916;
    const int visw = 480;
    const int vish = 480;
-   socketstream vis[5];
+   socketstream vis[6];
 
    const int order;
    const long int seed;
    Device device;
-   Mesh mesh, image_mesh;
+   Mesh mesh, image_mesh, action_mesh;
    const int dim;
    const int sdim;
    H1_FECollection h1fec;
    L2_FECollection l2fec;
-   FiniteElementSpace h1fes, l2fes, image_fes;
+   FiniteElementSpace h1fes, l2fes, image_fes, action_fes;
    ConstantCoefficient one;
    ConstantCoefficient zero;
    BilinearFormIntegrator *integ;
    FunctionCoefficient xcoeff;
    GridFunction solution, elem_id, elem_depth;
+   Vector action_elem_map;
    Vector solution_image, elem_id_image, elem_depth_image;
    FiniteElementSpace flux_fespace;
    ZienkiewiczZhuEstimator estimator;
@@ -64,15 +65,21 @@ public:
 
    double GetNorm();
    double *GetImage();
-   double *GetIdField();
+   double *GetImageToElementMap();
+   double *GetActionToElementMap();
    double *GetDepthField();
 
-   int GetImageX() const { return order * (nx << max_depth);}
-   int GetImageY() const { return order * (ny << max_depth);}
+   int GetImageX() const { return order * (nx << max_depth); }
+   int GetImageY() const { return order * (ny << max_depth); }
    int GetImageSize() const { return GetImageX() * GetImageY(); }
 
+   int GetActionX() const { return nx << max_depth; }
+   int GetActionY() const { return ny << max_depth; }
+   int GetActionSize() const { return GetActionX() * GetActionY(); }
+
 private:
-   void GetImage(GridFunction&, Vector&);
+   void GetImage(GridFunction &, Vector &, bool subdivide_by_order = true);
 };
 
 #endif // DRL4AMR_HPP
+

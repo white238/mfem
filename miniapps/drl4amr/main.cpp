@@ -18,8 +18,10 @@ int main(int argc, char *argv[])
       sim.Compute();
       sim.Refine(e);
       sim.GetImage();
-      sim.GetIdField();
+      sim.GetImageToElementMap();
       sim.GetDepthField();
+      sim.GetActionToElementMap();
    }
    return 0;
 }
+

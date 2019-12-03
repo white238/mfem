@@ -67,6 +67,7 @@ Drl4Amr::Drl4Amr(int order, int seed):
    device(device_config),
    mesh(nx, ny, quads, generate_edges, sx, sy, sfc),
    image_mesh(GetImageX(), GetImageY(), quads, false, sx, sy, false),
+   action_mesh(GetActionX(), GetActionY(), quads, false, sx, sy, false),
    dim(mesh.Dimension()),
    sdim(mesh.SpaceDimension()),
    h1fec(order, dim, BasisType::Positive),
@@ -74,6 +75,7 @@ Drl4Amr::Drl4Amr(int order, int seed):
    h1fes(&mesh, &h1fec),
    l2fes(&mesh, &l2fec),
    image_fes(&image_mesh, &l2fec),
+   action_fes(&action_mesh, &l2fec),
    one(1.0),
    zero(0.0),
    integ(new DiffusionIntegrator(one)),
@@ -81,6 +83,7 @@ Drl4Amr::Drl4Amr(int order, int seed):
    solution(&h1fes),
    elem_id(&image_fes),
    elem_depth(&image_fes),
+   action_elem_map(GetActionSize()),
    solution_image(GetImageSize()),
    elem_id_image(GetImageSize()),
    elem_depth_image(GetImageSize()),
@@ -109,6 +112,7 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[2].open(vishost, visport);
       vis[3].open(vishost, visport);
       vis[4].open(vishost, visport);
+      vis[5].open(vishost, visport);
    }
 
    // Initialize theta, offsets and x from x0_coeff
@@ -180,8 +184,22 @@ Drl4Amr::Drl4Amr(int order, int seed):
              << "window_geometry "
              <<  (4 * vish + border) << " " << 0
              << " " << visw << " " << vish << endl
-             << "keys RjgA" << endl;
+             << "keys RjgAm" << endl;
    }
+
+   if (visualization && vis[5].good())
+   {
+      action_elem_map = 0.0;
+      GridFunction gf(&action_fes, action_elem_map.GetData());
+      vis[5].precision(8);
+      vis[5] << "solution" << endl << action_mesh << gf << flush;
+      vis[5] << "window_title '" << "Action to Elem" << "'" << endl
+             << "window_geometry "
+             <<  (4 * vish + border) << " " << vish
+             << " " << visw << " " << vish << endl
+             << "keys RjgAm" << endl;
+   }
+
 
    // Set up an error estimator. Here we use the Zienkiewicz-Zhu estimator
    // that uses the ComputeElementFlux method of the DiffusionIntegrator to
@@ -290,19 +308,23 @@ double Drl4Amr::GetNorm()
 
 
 // *****************************************************************************
-void Drl4Amr::GetImage(GridFunction &gf, Vector &image)
+void Drl4Amr::GetImage(GridFunction &gf, Vector &image, bool subdivide_by_order)
 {
    Vector vals;
    Array<int> vert;
-   const int nw = GetImageX() + 1;
-   const int nh = GetImageY() + 1;
+   const int nw = (subdivide_by_order) ? GetImageX() + 1
+                                       : GetActionX() + 1;
+   const int nh = (subdivide_by_order) ? GetImageY() + 1
+                                       : GetActionY() + 1;
    // rasterize each element into the image
    GlobGeometryRefiner.SetType(Quadrature1D::OpenUniform);
    for (int k = 0; k < mesh.GetNE(); k++)
    {
       constexpr Geometry::Type geom = Geometry::SQUARE;
       const int depth = mesh.ncmesh->GetElementDepth(k);
-      const int times = (1 << (max_depth - depth)) * order - 1;
+      const int times =
+         (subdivide_by_order) ? (1 << (max_depth - depth)) * order - 1
+                              : (1 << (max_depth - depth)) - 1;
       IntegrationRule &ir = GlobGeometryRefiner.Refine(geom, times)->RefPts;
       gf.GetValues(k, ir, vals);
       mesh.GetElementVertices(k, vert);
@@ -337,7 +359,7 @@ double *Drl4Amr::GetImage()
 \
 
 // *****************************************************************************
-double *Drl4Amr::GetIdField()
+double *Drl4Amr::GetImageToElementMap()
 {
    GridFunction id(&l2fes);
    Array<int> dofs;
@@ -349,7 +371,7 @@ double *Drl4Amr::GetIdField()
          id[ dofs[k] ] = i;
       }
    }
-   GetImage(id, elem_id);
+   GetImage(id, elem_id, true);
    if (visualization && vis[4].good())
    {
       GridFunction gf(&image_fes, elem_id.GetData());
@@ -357,6 +379,28 @@ double *Drl4Amr::GetIdField()
       fflush(0);
    }
    return elem_id.GetData();
+}
+
+double *Drl4Amr::GetActionToElementMap()
+{
+   GridFunction id(&l2fes);
+   Array<int> dofs;
+   for (int i = 0; i < mesh.GetNE(); i++)
+   {
+      l2fes.GetElementDofs(i, dofs);
+      for (int k = 0; k < dofs.Size(); k++)
+      {
+         id(dofs[k]) = i;
+      }
+   }
+   GetImage(id, action_elem_map, false);
+   if (visualization && vis[5].good())
+   {
+      GridFunction gf(&action_fes, action_elem_map.GetData());
+      vis[5] << "solution" << endl << action_mesh << gf << flush;
+      fflush(0);
+   }
+   return action_elem_map.GetData();
 }
 
 
@@ -398,10 +442,19 @@ extern "C" {
    double GetNorm(Drl4Amr *ctrl) { return ctrl->GetNorm(); }
 
    double *GetImage(Drl4Amr *ctrl) { return ctrl->GetImage(); }
-   double *GetIdField(Drl4Amr *ctrl) { return ctrl->GetIdField(); }
+   double *GetIdField(Drl4Amr *ctrl) { return ctrl->GetImageToElementMap(); }
+   double *GetActionToElementMap(Drl4Amr *ctrl)
+   {
+      return ctrl->GetActionToElementMap();
+   }
    double *GetDepthField(Drl4Amr *ctrl) { return ctrl->GetDepthField(); }
 
    int GetImageX(Drl4Amr *ctrl) { return ctrl->GetImageX(); }
    int GetImageY(Drl4Amr *ctrl) { return ctrl->GetImageY(); }
    int GetImageSize(Drl4Amr *ctrl) { return ctrl->GetImageSize(); }
+
+   int GetActionX(Drl4Amr *ctrl) { return ctrl->GetActionX(); }
+   int GetActionY(Drl4Amr *ctrl) { return ctrl->GetActionY(); }
+   int GetActionSize(Drl4Amr *ctrl) { return ctrl->GetActionSize(); }
 }
+

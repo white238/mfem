@@ -8,17 +8,17 @@
 // MFEM is free software; you can redistribute it and/or modify it under the
 // terms of the GNU Lesser General Public License (as published by the Free
 // Software Foundation) version 2.1 dated February 1999.
+#ifndef _WIN32
+#define _USE_MATH_DEFINES
+#include <cmath>
+#endif
+
 #include <unordered_map>
 
 #include "mfem.hpp"
 #include "general/forall.hpp"
 
 #include "sedov.hpp"
-
-#ifndef _WIN32
-#define _USE_MATH_DEFINES
-#include <cmath>
-#endif
 
 using namespace std;
 using namespace mfem;
@@ -2926,12 +2926,12 @@ void QKernel(const int nzones,
             MFEM_FOREACH_THREAD(qy,y,Q1D)
             {
                QBody<dim>(nzones, z, nqp, qx + qy * Q1D,
-                          gamma, use_viscosity, h0, h1order, cfl, infinity,
-                          Jinv,stress,sgrad_v,eig_val_data,eig_vec_data,
-                          compr_dir,Jpi,ph_dir,stressJiT,
-                          d_weights, d_Jacobians, d_rho0DetJ0w,
-                          d_e_quads, d_grad_v_ext, d_Jac0inv,
-                          d_dt_est, d_stressJinvT);
+               gamma, use_viscosity, h0, h1order, cfl, infinity,
+               Jinv,stress,sgrad_v,eig_val_data,eig_vec_data,
+               compr_dir,Jpi,ph_dir,stressJiT,
+               d_weights, d_Jacobians, d_rho0DetJ0w,
+               d_e_quads, d_grad_v_ext, d_Jac0inv,
+               d_dt_est, d_stressJinvT);
             }
          }
          MFEM_SYNC_THREAD;
@@ -2957,12 +2957,12 @@ void QKernel(const int nzones,
                MFEM_FOREACH_THREAD(qz,z,Q1D)
                {
                   QBody<dim>(nzones, z, nqp, qx + Q1D * (qy + qz * Q1D),
-                             gamma, use_viscosity, h0, h1order, cfl, infinity,
-                             Jinv,stress,sgrad_v,eig_val_data,eig_vec_data,
-                             compr_dir,Jpi,ph_dir,stressJiT,
-                             d_weights, d_Jacobians, d_rho0DetJ0w,
-                             d_e_quads, d_grad_v_ext, d_Jac0inv,
-                             d_dt_est, d_stressJinvT);
+                  gamma, use_viscosity, h0, h1order, cfl, infinity,
+                  Jinv,stress,sgrad_v,eig_val_data,eig_vec_data,
+                  compr_dir,Jpi,ph_dir,stressJiT,
+                  d_weights, d_Jacobians, d_rho0DetJ0w,
+                  d_e_quads, d_grad_v_ext, d_Jac0inv,
+                  d_dt_est, d_stressJinvT);
                }
             }
          }

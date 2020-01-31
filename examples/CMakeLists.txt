@@ -55,6 +55,7 @@ if (MFEM_USE_MPI)
     ex20p.cpp
     ex21p.cpp
     ex22p.cpp
+    adv_diff_benchmark.cpp
     )
 endif()
 

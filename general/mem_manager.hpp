@@ -768,7 +768,7 @@ inline T *Memory<T>::ReadWrite(MemoryClass mc, int size)
    const size_t bytes = size * sizeof(T);
    if (!(flags & REGISTERED))
    {
-      if (mc == MemoryClass::HOST) { return Runtime::RW<T>(h_ptr),false; }
+      if (mc == MemoryClass::HOST) { return Runtime::RW<T>(h_ptr,false); }
       MemoryManager::Register_(h_ptr, nullptr, capacity*sizeof(T), h_mt,
                                flags & OWNS_HOST, flags & ALIAS, flags);
    }

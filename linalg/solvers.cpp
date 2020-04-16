@@ -393,13 +393,24 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    dbg("Dot");
    nom0 = nom = Dot(d, r);
    MFEM_ASSERT(IsFinite(nom), "nom = " << nom);
-
    if (print_level == 1 || print_level == 3)
    {
       mfem::out << "   Iteration : " << setw(3) << 0 << "  (B r, r) = "
                 << nom << (print_level == 3 ? " ...\n" : "\n");
    }
 
+   if (nom < 0.0)
+   {
+      if (print_level >= 0)
+      {
+         mfem::out << "PCG: The preconditioner is not positive definite. (Br, r) = "
+                   << nom << '\n';
+      }
+      converged = 0;
+      final_iter = 0;
+      final_norm = nom;
+      return;
+   }
    r0 = std::max(nom*rel_tol*rel_tol, abs_tol*abs_tol);
    dbg("r0=%f",r0);
    //Runtime::Cond("nom <= r0)");
@@ -470,6 +481,17 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
          Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "eq");
       }
       MFEM_ASSERT(IsFinite(betanom), "betanom = " << betanom);
+      if (betanom < 0.0)
+      {
+         if (print_level >= 0)
+         {
+            mfem::out << "PCG: The preconditioner is not positive definite. (Br, r) = "
+                      << betanom << '\n';
+         }
+         converged = 0;
+         final_iter = i;
+         break;
+      }
 
       if (print_level == 1)
       {

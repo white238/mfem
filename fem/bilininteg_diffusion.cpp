@@ -81,12 +81,20 @@ static void OccaPADiffusionSetup3D(const int D1D,
 #endif // MFEM_USE_OCCA
 
 // PA Diffusion Assemble 2D kernel
+template<const int T_SDIM>
 static void PADiffusionSetup2D(const int Q1D,
-										 const int NE,
-										 const Array<double> &w,
-										 const Vector &j,
-										 const Vector &c,
-										 Vector &d)
+                               const int NE,
+                               const Array<double> &w,
+                               const Vector &j,
+                               const Vector &c,
+                               Vector &d);
+template<>
+void PADiffusionSetup2D<2>(const int Q1D,
+                           const int NE,
+                           const Array<double> &w,
+                           const Vector &j,
+                           const Vector &c,
+                           Vector &d)
 {
 	const int NQ = Q1D*Q1D;
 	const bool const_c = c.Size() == 1;
@@ -110,6 +118,48 @@ static void PADiffusionSetup2D(const int Q1D,
 			D(q,2,e) =  c_detJ * (J11*J11 + J21*J21); // 2,2
 		}
 	});
+}
+
+// PA Diffusion Assemble 2D kernel with 3D node coords
+template<>
+void PADiffusionSetup2D<3>(const int Q1D,
+                           const int NE,
+                           const Array<double> &w,
+                           const Vector &j,
+                           const Vector &c,
+                           Vector &d)
+{
+   constexpr int DIM = 2;
+   constexpr int SDIM = 3;
+   const int NQ = Q1D*Q1D;
+   const bool const_c = c.Size() == 1;
+
+   auto W = w.Read();
+   auto J = Reshape(j.Read(), NQ, SDIM, DIM, NE);
+   auto C = const_c ? Reshape(c.Read(), 1, 1) : Reshape(c.Read(), NQ, NE);
+   auto D = Reshape(d.Write(), NQ, 3, NE);
+   MFEM_FORALL(e, NE,
+   {
+      for (int q = 0; q < NQ; ++q)
+      {
+         const double wq = W[q];
+         const double J11 = J(q,0,0,e);
+         const double J21 = J(q,1,0,e);
+         const double J31 = J(q,2,0,e);
+         const double J12 = J(q,0,1,e);
+         const double J22 = J(q,1,1,e);
+         const double J32 = J(q,2,1,e);
+         const double E = J11*J11 + J21*J21 + J31*J31;
+         const double G = J12*J12 + J22*J22 + J32*J32;
+         const double F = J11*J12 + J21*J22 + J31*J32;
+         const double iw = 1.0 / sqrt(E*G - F*F);
+         const double coeff = const_c ? C(0,0) : C(q,e);
+         const double alpha = wq * coeff * iw;
+         D(q,0,e) =  alpha * G; // 1,1
+         D(q,1,e) = -alpha * F; // 1,2
+         D(q,2,e) =  alpha * E; // 2,2
+      }
+   });
 }
 
 // PA Diffusion Assemble 3D kernel
@@ -166,28 +216,32 @@ static void PADiffusionSetup3D(const int Q1D,
 }
 
 static void PADiffusionSetup(const int dim,
-									  const int D1D,
-									  const int Q1D,
-									  const int NE,
-									  const Array<double> &W,
-									  const Vector &J,
-									  const Vector &C,
-									  Vector &D)
+                             const int sdim,
+                             const int D1D,
+                             const int Q1D,
+                             const int NE,
+                             const Array<double> &W,
+                             const Vector &J,
+                             const Vector &C,
+                             Vector &D)
 {
 	if (dim == 1) { MFEM_ABORT("dim==1 not supported in PADiffusionSetup"); }
 	if (dim == 2)
 	{
 #ifdef MFEM_USE_OCCA
-		if (DeviceCanUseOcca())
-		{
-			OccaPADiffusionSetup2D(D1D, Q1D, NE, W, J, C, D);
-			return;
-		}
+      if (DeviceCanUseOcca())
+      {
+         OccaPADiffusionSetup2D(D1D, Q1D, NE, W, J, C, D);
+         return;
+      }
+#else
+      MFEM_CONTRACT_VAR(D1D);
 #endif // MFEM_USE_OCCA
-		PADiffusionSetup2D(Q1D, NE, W, J, C, D);
-	}
-	if (dim == 3)
-	{
+      if (sdim == 2) { PADiffusionSetup2D<2>(Q1D, NE, W, J, C, D); }
+      if (sdim == 3) { PADiffusionSetup2D<3>(Q1D, NE, W, J, C, D); }
+   }
+   if (dim == 3)
+   {
 #ifdef MFEM_USE_OCCA
 		if (DeviceCanUseOcca())
 		{
@@ -209,51 +263,54 @@ void DiffusionIntegrator::SetupPA(const FiniteElementSpace &fes,
 	const FiniteElement &el = *fes.GetFE(0);
 	const IntegrationRule *ir = IntRule ? IntRule : &GetRule(el, el);
 #ifdef MFEM_USE_CEED
-	if (DeviceCanUseCeed() && !force)
-	{
-		if (ceedDataPtr) { delete ceedDataPtr; }
-		CeedData* ptr = new CeedData();
-		ceedDataPtr = ptr;
-		InitCeedCoeff(Q, ptr);
-		return CeedPADiffusionAssemble(fes, *ir, *ptr);
-	}
+   if (DeviceCanUseCeed() && !force)
+   {
+      if (ceedDataPtr) { delete ceedDataPtr; }
+      CeedData* ptr = new CeedData();
+      ceedDataPtr = ptr;
+      InitCeedCoeff(Q, ptr);
+      return CeedPADiffusionAssemble(fes, *ir, *ptr);
+   }
+#else
+   MFEM_CONTRACT_VAR(force);
 #endif
-	const int dims = el.GetDim();
-	const int symmDims = (dims * (dims + 1)) / 2; // 1x1: 1, 2x2: 3, 3x3: 6
-	const int nq = ir->GetNPoints();
-	dim = mesh->Dimension();
-	ne = fes.GetNE();
-	geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
-	maps = &el.GetDofToQuad(*ir, DofToQuad::TENSOR);
-	dofs1D = maps->ndof;
-	quad1D = maps->nqpt;
-	pa_data.SetSize(symmDims * nq * ne, Device::GetDeviceMemoryType());
-	Vector coeff;
-	if (Q == nullptr)
-	{
-		coeff.SetSize(1);
-		coeff(0) = 1.0;
-	}
-	else if (ConstantCoefficient* cQ = dynamic_cast<ConstantCoefficient*>(Q))
-	{
-		coeff.SetSize(1);
-		coeff(0) = cQ->constant;
-	}
-	else
-	{
-		coeff.SetSize(nq * ne);
-		auto C = Reshape(coeff.HostWrite(), nq, ne);
-		for (int e = 0; e < ne; ++e)
-		{
-			ElementTransformation& T = *fes.GetElementTransformation(e);
-			for (int q = 0; q < nq; ++q)
-			{
-				C(q,e) = Q->Eval(T, ir->IntPoint(q));
-			}
-		}
-	}
-	PADiffusionSetup(dim, dofs1D, quad1D, ne, ir->GetWeights(), geom->J, coeff,
-						  pa_data);
+   const int dims = el.GetDim();
+   const int symmDims = (dims * (dims + 1)) / 2; // 1x1: 1, 2x2: 3, 3x3: 6
+   const int nq = ir->GetNPoints();
+   dim = mesh->Dimension();
+   ne = fes.GetNE();
+   geom = mesh->GetGeometricFactors(*ir, GeometricFactors::JACOBIANS);
+   const int sdim = mesh->SpaceDimension();
+   maps = &el.GetDofToQuad(*ir, DofToQuad::TENSOR);
+   dofs1D = maps->ndof;
+   quad1D = maps->nqpt;
+   pa_data.SetSize(symmDims * nq * ne, Device::GetDeviceMemoryType());
+   Vector coeff;
+   if (Q == nullptr)
+   {
+      coeff.SetSize(1);
+      coeff(0) = 1.0;
+   }
+   else if (ConstantCoefficient* cQ = dynamic_cast<ConstantCoefficient*>(Q))
+   {
+      coeff.SetSize(1);
+      coeff(0) = cQ->constant;
+   }
+   else
+   {
+      coeff.SetSize(nq * ne);
+      auto C = Reshape(coeff.HostWrite(), nq, ne);
+      for (int e = 0; e < ne; ++e)
+      {
+         ElementTransformation& T = *fes.GetElementTransformation(e);
+         for (int q = 0; q < nq; ++q)
+         {
+            C(q,e) = Q->Eval(T, ir->IntPoint(q));
+         }
+      }
+   }
+   PADiffusionSetup(dim, sdim, dofs1D, quad1D, ne, ir->GetWeights(), geom->J,
+                    coeff, pa_data);
 }
 
 void DiffusionIntegrator::AssemblePA(const FiniteElementSpace &fes)
@@ -908,15 +965,13 @@ static void PADiffusionApply2D(const int NE,
 // Shared memory PA Diffusion Apply 2D kernel
 template<int T_D1D = 0, int T_Q1D = 0, int T_NBZ = 0>
 static void SmemPADiffusionApply2D(const int NE,
-											  const Array<double> &b_,
-											  const Array<double> &g_,
-											  const Array<double> &bt_,
-											  const Array<double> &gt_,
-											  const Vector &d_,
-											  const Vector &x_,
-											  Vector &y_,
-											  const int d1d = 0,
-											  const int q1d = 0)
+                                   const Array<double> &b_,
+                                   const Array<double> &g_,
+                                   const Vector &d_,
+                                   const Vector &x_,
+                                   Vector &y_,
+                                   const int d1d = 0,
+                                   const int q1d = 0)
 {
 	const int D1D = T_D1D ? T_D1D : d1d;
 	const int Q1D = T_Q1D ? T_Q1D : q1d;
@@ -1255,15 +1310,13 @@ static void PADiffusionApply3D(const int NE,
 // Shared memory PA Diffusion Apply 3D kernel
 template<int T_D1D = 0, int T_Q1D = 0>
 static void SmemPADiffusionApply3D(const int NE,
-											  const Array<double> &b_,
-											  const Array<double> &g_,
-											  const Array<double> &bt_,
-											  const Array<double> &gt_,
-											  const Vector &d_,
-											  const Vector &x_,
-											  Vector &y_,
-											  const int d1d = 0,
-											  const int q1d = 0)
+                                   const Array<double> &b_,
+                                   const Array<double> &g_,
+                                   const Vector &d_,
+                                   const Vector &x_,
+                                   Vector &y_,
+                                   const int d1d = 0,
+                                   const int q1d = 0)
 {
 	const int D1D = T_D1D ? T_D1D : d1d;
 	const int Q1D = T_Q1D ? T_Q1D : q1d;
@@ -1521,38 +1574,38 @@ static void PADiffusionApply(const int dim,
 		MFEM_ABORT("OCCA PADiffusionApply unknown kernel!");
 	}
 #endif // MFEM_USE_OCCA
-	if (dim == 2)
-	{
-		switch ((D1D << 4 ) | Q1D)
-		{
-			case 0x22: return SmemPADiffusionApply2D<2,2,16>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x33: return SmemPADiffusionApply2D<3,3,16>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x44: return SmemPADiffusionApply2D<4,4,8>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x55: return SmemPADiffusionApply2D<5,5,8>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x66: return SmemPADiffusionApply2D<6,6,4>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x77: return SmemPADiffusionApply2D<7,7,4>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x88: return SmemPADiffusionApply2D<8,8,2>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x99: return SmemPADiffusionApply2D<9,9,2>(NE,B,G,Bt,Gt,D,X,Y);
-			default:   return PADiffusionApply2D(NE,B,G,Bt,Gt,D,X,Y,D1D,Q1D);
-		}
-	}
-	else if (dim == 3)
-	{
-		switch ((D1D << 4 ) | Q1D)
-		{
-			case 0x23: return SmemPADiffusionApply3D<2,3>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x34: return SmemPADiffusionApply3D<3,4>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x45: return SmemPADiffusionApply3D<4,5>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x46: return SmemPADiffusionApply3D<4,6>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x56: return SmemPADiffusionApply3D<5,6>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x58: return SmemPADiffusionApply3D<5,8>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x67: return SmemPADiffusionApply3D<6,7>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x78: return SmemPADiffusionApply3D<7,8>(NE,B,G,Bt,Gt,D,X,Y);
-			case 0x89: return SmemPADiffusionApply3D<8,9>(NE,B,G,Bt,Gt,D,X,Y);
-			default:   return PADiffusionApply3D(NE,B,G,Bt,Gt,D,X,Y,D1D,Q1D);
-		}
-	}
-	MFEM_ABORT("Unknown kernel.");
+   if (dim == 2)
+   {
+      switch ((D1D << 4 ) | Q1D)
+      {
+         case 0x22: return SmemPADiffusionApply2D<2,2,16>(NE,B,G,D,X,Y);
+         case 0x33: return SmemPADiffusionApply2D<3,3,16>(NE,B,G,D,X,Y);
+         case 0x44: return SmemPADiffusionApply2D<4,4,8>(NE,B,G,D,X,Y);
+         case 0x55: return SmemPADiffusionApply2D<5,5,8>(NE,B,G,D,X,Y);
+         case 0x66: return SmemPADiffusionApply2D<6,6,4>(NE,B,G,D,X,Y);
+         case 0x77: return SmemPADiffusionApply2D<7,7,4>(NE,B,G,D,X,Y);
+         case 0x88: return SmemPADiffusionApply2D<8,8,2>(NE,B,G,D,X,Y);
+         case 0x99: return SmemPADiffusionApply2D<9,9,2>(NE,B,G,D,X,Y);
+         default:   return PADiffusionApply2D(NE,B,G,Bt,Gt,D,X,Y,D1D,Q1D);
+      }
+   }
+   else if (dim == 3)
+   {
+      switch ((D1D << 4 ) | Q1D)
+      {
+         case 0x23: return SmemPADiffusionApply3D<2,3>(NE,B,G,D,X,Y);
+         case 0x34: return SmemPADiffusionApply3D<3,4>(NE,B,G,D,X,Y);
+         case 0x45: return SmemPADiffusionApply3D<4,5>(NE,B,G,D,X,Y);
+         case 0x46: return SmemPADiffusionApply3D<4,6>(NE,B,G,D,X,Y);
+         case 0x56: return SmemPADiffusionApply3D<5,6>(NE,B,G,D,X,Y);
+         case 0x58: return SmemPADiffusionApply3D<5,8>(NE,B,G,D,X,Y);
+         case 0x67: return SmemPADiffusionApply3D<6,7>(NE,B,G,D,X,Y);
+         case 0x78: return SmemPADiffusionApply3D<7,8>(NE,B,G,D,X,Y);
+         case 0x89: return SmemPADiffusionApply3D<8,9>(NE,B,G,D,X,Y);
+         default:   return PADiffusionApply3D(NE,B,G,Bt,Gt,D,X,Y,D1D,Q1D);
+      }
+   }
+   MFEM_ABORT("Unknown kernel.");
 }
 
 // PA Diffusion Apply kernel

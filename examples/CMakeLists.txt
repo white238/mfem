@@ -65,7 +65,6 @@ if (MFEM_USE_MPI)
     ex26p.cpp
     ex27p.cpp
     insblock.cpp
-    insblock_mg.cpp
     )
 endif()
 

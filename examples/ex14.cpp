@@ -36,6 +36,177 @@
 using namespace std;
 using namespace mfem;
 
+class Multigrid : public Solver
+{
+public:
+   Multigrid() : Solver() {}
+
+   virtual void Mult(const Vector &x_, Vector &y_) const
+   {
+      std::vector<const HypreParMatrix *> A;
+      A.push_back(static_cast<const HypreParMatrix *>(op));
+
+      std::vector<Vector> x;
+      x.push_back(x_);
+
+      std::vector<Vector> b;
+      b.push_back(x_);
+
+      std::vector<Vector> r;
+      r.push_back(y_);
+
+      int nlevels = P.size();
+
+      if (P.size() == 0)
+      {
+         Operator *Arow = new SuperLURowLocMatrix(*A[0]);
+
+         SuperLUSolver *superlu = new SuperLUSolver(MPI_COMM_WORLD);
+         superlu->SetPrintStatistics(false);
+         superlu->SetSymmetricPattern(true);
+         superlu->SetColumnPermutation(superlu::PARMETIS);
+         superlu->SetOperator(*Arow);
+
+         superlu->Mult(x_, y_);
+
+         delete superlu;
+         delete Arow;
+
+         // BlockILU0 S(*const_cast<HypreParMatrix *>(A[0]),
+         //             cpfes->GetFE(0)->GetDof());
+
+         // S.Mult(x_, y_);
+         return;
+      }
+
+      // Build hierarchy
+      for (int i = 0; i < nlevels; ++i)
+      {
+         A.push_back(RAP(A[i], P[i]));
+
+         Vector w(P[i]->Width());
+
+         P[i]->MultTranspose(x[i], w);
+         x.push_back(w);
+
+         P[i]->MultTranspose(b[i], w);
+         b.push_back(w);
+
+         P[i]->MultTranspose(r[i], w);
+         r.push_back(w);
+      }
+
+      // Pre-smoothing
+      for (int i = 0; i < P.size(); ++i)
+      {
+         // BlockILU0 S(*const_cast<HypreParMatrix *>(A[i]),
+         //             cpfes->GetFE(0)->GetDof());
+
+         HypreSmoother S(*const_cast<HypreParMatrix *>(A[i]));
+
+         // Smooth
+         S.Mult(b[i], x[i]);
+
+         // r = b - A * x
+         A[i]->Mult(x[i], r[i]);
+         add(b[i], -1.0, r[i], r[i]);
+
+         // Restrict to next coarse grid
+         P[i]->MultTranspose(r[i], b[i + 1]);
+      }
+
+      {
+         // Coarse solve
+         Operator *Arow = new SuperLURowLocMatrix(*A[nlevels - 1]);
+
+         SuperLUSolver *superlu = new SuperLUSolver(MPI_COMM_WORLD);
+         superlu->SetPrintStatistics(false);
+         superlu->SetSymmetricPattern(true);
+         superlu->SetColumnPermutation(superlu::PARMETIS);
+         superlu->SetOperator(*Arow);
+
+         superlu->Mult(b[nlevels - 1], x[nlevels - 1]);
+
+         delete superlu;
+         delete Arow;
+
+         // BlockILU0 S(*const_cast<HypreParMatrix *>(A[nlevels - 1]),
+         //             cpfes->GetFE(0)->GetDof());
+
+         // GMRESSolver gmres_coarse(MPI_COMM_WORLD);
+         // gmres_coarse.iterative_mode = false;
+         // gmres_coarse.SetPreconditioner(S);
+         // gmres_coarse.SetOperator(*A[nlevels - 1]);
+         // gmres_coarse.SetMaxIter(500);
+         // gmres_coarse.SetRelTol(1e-12);
+         // gmres_coarse.SetPrintLevel(0);
+         // gmres_coarse.Mult(b[nlevels - 1], x[nlevels - 1]);
+      }
+
+      // Post-smoothing
+      for (int i = nlevels - 1; i > 0; --i)
+      {
+         // Prolongate to next fine grid
+         P[i - 1]->Mult(x[i], x[i - 1]);
+
+         // r = b - A * x
+         A[i - 1]->Mult(x[i - 1], r[i - 1]);
+         add(b[i - 1], -1.0, r[i - 1], r[i - 1]);
+
+         // BlockILU0 S(*const_cast<HypreParMatrix *>(A[i - 1]),
+         //             cpfes->GetFE(0)->GetDof());
+
+         HypreSmoother S(*const_cast<HypreParMatrix *>(A[i - 1]));
+
+         // Smooth
+         S.Mult(r[i - 1], b[i - 1]);
+         x[i - 1].Add(0.9, b[i - 1]);
+      }
+
+      y_ = x[0];
+
+      for (int i = 1; i < A.size(); ++i)
+      {
+         delete A[i];
+      }
+   }
+
+   virtual void SetOperator(const Operator &op_)
+   {
+      op = &op_;
+      height = op->Height();
+      width = op->Width();
+   }
+
+   void AddLevel(const ParFiniteElementSpace &pfes)
+   {
+      if (cpfes != nullptr)
+      {
+         OperatorHandle Tr(Operator::Hypre_ParCSR);
+         pfes.GetTrueTransferOperator(*cpfes, Tr);
+         HypreParMatrix *Pi;
+         Tr.Get(Pi);
+         P.insert(P.begin(), new HypreParMatrix(*Pi));
+      }
+
+      if (pfes.GetMyRank() == 0)
+      {
+         out << "MG: Adding level " << P.size() << endl;
+      }
+
+      // Copy fes as next coarse fes
+      delete cpfes;
+      cpfes = new ParFiniteElementSpace(pfes);
+   }
+
+   ~Multigrid() {}
+
+   const Operator *op = nullptr;
+   ParFiniteElementSpace *cpfes = nullptr; // Previous coarse FEs
+   std::vector<HypreParMatrix *> P;        // Prolongations
+};
+
+
 int main(int argc, char *argv[])
 {
    // 1. Parse command-line options.

@@ -19,7 +19,13 @@
 #include "../general/device.hpp"
 #include "../general/table.hpp"
 #include "../general/globals.hpp"
+#include "../general/cuda.hpp"
 #include "densemat.hpp"
+
+#ifdef MFEM_USE_CUDA
+#include <cusparse.h>
+#include <library_types.h>
+#endif
 
 namespace mfem
 {
@@ -80,9 +86,30 @@ protected:
    void Destroy();   // Delete all owned data
    void SetEmpty();  // Init all entries with empty values
 
+   bool useCuSparse{true}; //Use CuSparse if available
+
+#ifdef MFEM_USE_CUDA
+   cusparseStatus_t status;
+   static cusparseHandle_t handle;
+   cusparseMatDescr_t descr=0;
+   mutable size_t bufferSize{0};
+   mutable void *dBuffer = nullptr;
+   mutable bool initCuSparse{false};
+
+   static int SparseMatrixCount;
+   mutable cusparseSpMatDescr_t matA_descr;
+   mutable cusparseDnVecDescr_t vecX_descr;
+   mutable cusparseDnVecDescr_t vecY_descr;
+#endif
+
 public:
    /// Create an empty SparseMatrix.
-   SparseMatrix() { SetEmpty(); }
+   SparseMatrix()
+   {
+      SetEmpty();
+
+      InitCuSparse();
+   }
 
    /** @brief Create a sparse matrix with flexible sparsity structure using a
        row-wise linked list (LIL) format. */
@@ -118,6 +145,12 @@ public:
    /// Create a SparseMatrix with diagonal @a v, i.e. A = Diag(v)
    SparseMatrix(const Vector & v);
 
+   // Initialize CuSparse
+   void InitCuSparse();
+
+   // Runtime option to use CuSparse
+   // Only valid when using a CUDA backend
+   void UseCuSparse(bool _useCuSparse = true) { useCuSparse = _useCuSparse;}
 
    /// Assignment operator: deep copy
    SparseMatrix& operator=(const SparseMatrix &rhs);
@@ -573,7 +606,22 @@ public:
    void Swap(SparseMatrix &other);
 
    /// Destroys sparse matrix.
-   virtual ~SparseMatrix() { Destroy(); }
+   virtual ~SparseMatrix()
+   {
+      Destroy();
+#ifdef MFEM_USE_CUDA
+      if (handle && SparseMatrixCount==1)
+      { cusparseDestroy(handle);}
+      if (initCuSparse)
+      {
+         cusparseDestroySpMat(matA_descr);
+         cusparseDestroyDnVec(vecX_descr);
+         cusparseDestroyDnVec(vecY_descr);
+         CuMemFree(dBuffer);
+      }
+      SparseMatrixCount--;
+#endif
+   }
 
    Type GetType() const { return MFEM_SPARSEMAT; }
 };

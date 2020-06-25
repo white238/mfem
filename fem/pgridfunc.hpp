@@ -39,7 +39,8 @@ protected:
    Vector face_nbr_data;
 
    /** @brief Vector used as an MPI buffer to send face-neighbor data
-        in ExchangeFaceNbrData() to neighboring processors. */
+       in ExchangeFaceNbrData() to neighboring processors. */
+
    //TODO: Use temporary memory to avoid CUDA malloc allocation cost.
    Vector send_data;
 

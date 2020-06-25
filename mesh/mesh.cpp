@@ -10535,7 +10535,7 @@ GeometricFactors::GeometricFactors(const GridFunction *nodes,
                                    const IntegrationRule &ir,
                                    int flags) : recompute_factors(false)
 {
-   AssembleWithNodes(this->nodes, ir, flags);
+   AssembleWithNodes(nodes, ir, flags);
 }
 
 void GeometricFactors::AssembleWithNodes(const GridFunction *nodes,

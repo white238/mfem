@@ -753,7 +753,7 @@ public:
    /// Destroy all GeometricFactors stored by the Mesh.
    /** This method can be used to force recomputation of the GeometricFactors,
        for example, after the mesh nodes are modified externally. */
-   void DeleteGeometricFactors();
+   void DeleteGeometricFactors(bool recompute = false);
 
    /// Equals 1 + num_holes - num_loops
    inline int EulerNumber() const
@@ -1358,10 +1358,22 @@ std::ostream &operator<<(std::ostream &out, const Mesh &mesh);
     Mesh. See Mesh::GetGeometricFactors(). */
 class GeometricFactors
 {
+
+protected:
+   /// Element restricted nodes
+   /// [TODO move to temp when pools are available]
+   /** This array uses a column-major layout with dimensions (ND x SDIM x NE) where
+        - ND   = number of degrees of freedom per element,
+        - SDIM = space dimension of the mesh = mesh.SpaceDimension(), and
+        - NE   = number of elements in the mesh. */
+   Vector Enodes;
+
 public:
    const Mesh *mesh;
+   const GridFunction *nodes;
    const IntegrationRule *IntRule;
    int computed_factors;
+   bool recompute_factors;
 
    enum FactorFlags
    {
@@ -1370,7 +1382,22 @@ public:
       DETERMINANTS = 1 << 2,
    };
 
+   GeometricFactors() = default;
+
    GeometricFactors(const Mesh *mesh, const IntegrationRule &ir, int flags);
+
+   GeometricFactors(const GridFunction *nodes, const IntegrationRule &ir,
+                    const int flags);
+
+   // Overrides calcuating geometric factors with mesh nodes and uses user defined nodes
+   void AssembleWithNodes(const GridFunction *nodes, const IntegrationRule &ir,
+                          const int flags);
+
+   void Recompute();
+
+   void SetForRecompute(bool recompute = false) {recompute_factors = recompute; };
+
+   bool RecomputeStatus() {return recompute_factors; };
 
    /// Mapped (physical) coordinates of all quadrature points.
    /** This array uses a column-major layout with dimensions (NQ x SDIM x NE)
@@ -1402,10 +1429,15 @@ public:
     Mesh. See Mesh::GetFaceGeometricFactors(). */
 class FaceGeometricFactors
 {
+protected:
+   //Temporary used computing face geometric factors
+   Vector Fnodes;
+
 public:
    const Mesh *mesh;
    const IntegrationRule *IntRule;
    int computed_factors;
+   bool recompute_factors;
    FaceType type;
 
    enum FactorFlags
@@ -1418,6 +1450,12 @@ public:
 
    FaceGeometricFactors(const Mesh *mesh, const IntegrationRule &ir, int flags,
                         FaceType type);
+
+   void Recompute();
+
+   void SetForRecompute(bool recompute = false) {recompute_factors = recompute; };
+
+   bool RecomputeStatus() {return recompute_factors; };
 
    /// Mapped (physical) coordinates of all quadrature points.
    /** This array uses a column-major layout with dimensions (NQ x SDIM x NF)

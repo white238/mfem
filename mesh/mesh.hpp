@@ -753,7 +753,7 @@ public:
    /// Destroy all GeometricFactors stored by the Mesh.
    /** This method can be used to force recomputation of the GeometricFactors,
        for example, after the mesh nodes are modified externally. */
-   void DeleteGeometricFactors(bool recompute = false);
+   void DeleteGeometricFactors(bool set_for_recompute = false);
 
    /// Equals 1 + num_holes - num_loops
    inline int EulerNumber() const
@@ -1393,8 +1393,6 @@ public:
    void AssembleWithNodes(const GridFunction *nodes, const IntegrationRule &ir,
                           const int flags);
 
-   void Recompute();
-
    void SetForRecompute(bool recompute = true) {recompute_factors = recompute; };
 
    bool RecomputeStatus() {return recompute_factors; };
@@ -1451,7 +1449,8 @@ public:
    FaceGeometricFactors(const Mesh *mesh, const IntegrationRule &ir, int flags,
                         FaceType type);
 
-   void Recompute();
+  void AssembleWithMesh(const Mesh *mesh, const IntegrationRule &ir, int flags,
+                    FaceType type);
 
    void SetForRecompute(bool recompute = true) {recompute_factors = recompute; };
 

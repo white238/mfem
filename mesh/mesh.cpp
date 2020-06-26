@@ -761,11 +761,13 @@ const GeometricFactors* Mesh::GetGeometricFactors(const IntegrationRule& ir,
       GeometricFactors *gf = geom_factors[i];
       if (gf->IntRule == &ir && (gf->computed_factors & flags) == flags)
       {
-         if (gf->RecomputeStatus())
-         {
-            gf->Recompute();
-         }
-         return gf;
+        if (gf->RecomputeStatus())
+        {
+          this->EnsureNodes();
+          gf->AssembleWithNodes(this->GetNodes(), ir, flags); //works
+          //gf->Recompute(); did not work
+        }
+        return gf;
       }
    }
 
@@ -786,11 +788,13 @@ const FaceGeometricFactors* Mesh::GetFaceGeometricFactors(
       if (gf->IntRule == &ir && (gf->computed_factors & flags) == flags &&
           gf->type==type)
       {
-         if (gf->RecomputeStatus())
-         {
-            gf->Recompute();
-         }
-         return gf;
+        if (gf->RecomputeStatus())
+        {
+          this->EnsureNodes();
+          //gf->Recompute();
+          gf->AssembleWithMesh(this,ir,flags,type);
+        }
+        return gf;
       }
    }
 
@@ -10547,12 +10551,6 @@ void GeometricFactors::AssembleWithNodes(const GridFunction *nodes,
    IntRule = &ir;
    computed_factors = flags;
 
-   Recompute();
-}
-
-void GeometricFactors::Recompute()
-{
-
    const FiniteElementSpace *fespace = nodes->FESpace();
    const FiniteElement *fe = fespace->GetFE(0);
    const int dim  = fe->GetDim();
@@ -10600,19 +10598,22 @@ void GeometricFactors::Recompute()
 
 FaceGeometricFactors::FaceGeometricFactors(const Mesh *mesh,
                                            const IntegrationRule &ir,
-                                           int flags, FaceType type)
-   : type(type), recompute_factors(false)
+                                           int flags, FaceType type_)
+   : recompute_factors(false)
 {
+   MFEM_VERIFY(mesh->GetNodes() != NULL, "Mesh nodes are null");
+   AssembleWithMesh(mesh, ir, flags, type_);
+
+}
+  
+void FaceGeometricFactors::AssembleWithMesh(const Mesh *mesh,
+                                            const IntegrationRule &ir,
+                                            int flags, FaceType facetype_)
+{
+   type = facetype_;
    this->mesh = mesh;
    IntRule = &ir;
    computed_factors = flags;
-
-   Recompute();
-
-}
-
-void FaceGeometricFactors::Recompute()
-{
    const GridFunction *nodes = this->mesh->GetNodes();
    const FiniteElementSpace *fespace = nodes->FESpace();
    const int vdim = fespace->GetVDim();

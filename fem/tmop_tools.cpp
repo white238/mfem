@@ -94,6 +94,7 @@ void AdvectorCG::ComputeAtNewPositionScalar(const Vector &new_nodes,
    double v_max = 0.0;
    const int s = new_field.Size();
 
+   u.HostReadWrite();
    for (int i = 0; i < s; i++)
    {
       double vel = 0.;

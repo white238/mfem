@@ -150,8 +150,8 @@ int main(int argc, char *argv[]) {
 
   // Fallback coarse space (fixed, never changes)
   FiniteElementCollection *fec = new H1_FECollection(order, dim);
-  ParFiniteElementSpace *coarse_fespace =
-      new ParFiniteElementSpace(coarse_pmesh, fec);
+  // ParFiniteElementSpace *coarse_fespace =
+  //     new ParFiniteElementSpace(coarse_pmesh, fec);
 
   ParGridFunction *x_distribution = nullptr;
 
@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
       // }
 
       refined_fespace->Update();
-      Operator *P = new TransferOperator(*fespace, *refined_fespace);
+      Operator *P = new TrueTransferOperator(*fespace, *refined_fespace);
       fespaces->AddLevel(refined_pmesh, refined_fespace, P, true, true, true);
       refined_fespace->UpdatesFinished();
 

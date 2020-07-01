@@ -287,12 +287,14 @@ public:
                              ParFiniteElementSpace &smooth_flux_fes)
    { Init(integ, sol, &flux_fes, &smooth_flux_fes); own_flux_fes = false; }
 
-   void SetFluxSpaces(ParFiniteElementSpace *flux_fes, ParFiniteElementSpace *smooth_flux_fes) {
-     if (own_flux_fes) { delete flux_space; delete smooth_flux_space; }
-     flux_space = flux_fes;
-     smooth_flux_space = smooth_flux_fes;
+   void SetFluxSpaces(ParFiniteElementSpace *flux_fes,
+                      ParFiniteElementSpace *smooth_flux_fes)
+   {
+      if (own_flux_fes) { delete flux_space; delete smooth_flux_space; }
+      flux_space = flux_fes;
+      smooth_flux_space = smooth_flux_fes;
 
-     own_flux_fes = true;
+      own_flux_fes = true;
    }
 
    /** @brief Set the exponent, p, of the Lp norm used for computing the local

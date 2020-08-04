@@ -152,9 +152,11 @@ void ElementRestriction::Mult(const Vector& x, Vector& y) const
    const int nd = dof;
    const int vd = vdim;
    const bool t = byvdim;
-   auto d_x = Reshape(x.Read(), t?vd:ndofs, t?ndofs:vd);
+
+   const auto d_x = Reshape(x.Read(), t?vd:ndofs, t?ndofs:vd);
+   const auto d_gatherMap = Runtime::Name("map", gatherMap.Read());
    auto d_y = Reshape(y.Write(), nd, vd, ne);
-   auto d_gatherMap = gatherMap.Read();
+
    MFEM_FORALL(i, dof*ne,
    {
       const int gid = d_gatherMap[i];
@@ -174,9 +176,10 @@ void ElementRestriction::MultUnsigned(const Vector& x, Vector& y) const
    const int nd = dof;
    const int vd = vdim;
    const bool t = byvdim;
-   auto d_x = Reshape(x.Read(), t?vd:ndofs, t?ndofs:vd);
+
+   const auto d_x = Reshape(x.Read(), t?vd:ndofs, t?ndofs:vd);
+   const auto d_gatherMap = gatherMap.Read();
    auto d_y = Reshape(y.Write(), nd, vd, ne);
-   auto d_gatherMap = gatherMap.Read();
 
    MFEM_FORALL(i, dof*ne,
    {
@@ -195,10 +198,12 @@ void ElementRestriction::MultTranspose(const Vector& x, Vector& y) const
    const int nd = dof;
    const int vd = vdim;
    const bool t = byvdim;
-   auto d_offsets = offsets.Read();
-   auto d_indices = indices.Read();
-   auto d_x = Reshape(x.Read(), nd, vd, ne);
+
+   const auto d_offsets = Runtime::Name("offsets", offsets.Read());
+   const auto d_indices = Runtime::Name("indices", indices.Read());
+   const auto d_x = Reshape(x.Read(), nd, vd, ne);
    auto d_y = Reshape(y.Write(), t?vd:ndofs, t?ndofs:vd);
+
    MFEM_FORALL(i, ndofs,
    {
       const int offset = d_offsets[i];
@@ -223,10 +228,12 @@ void ElementRestriction::MultTransposeUnsigned(const Vector& x, Vector& y) const
    const int nd = dof;
    const int vd = vdim;
    const bool t = byvdim;
-   auto d_offsets = offsets.Read();
-   auto d_indices = indices.Read();
-   auto d_x = Reshape(x.Read(), nd, vd, ne);
+
+   const auto d_offsets = offsets.Read();
+   const auto d_indices = indices.Read();
+   const auto d_x = Reshape(x.Read(), nd, vd, ne);
    auto d_y = Reshape(y.Write(), t?vd:ndofs, t?ndofs:vd);
+
    MFEM_FORALL(i, ndofs,
    {
       const int offset = d_offsets[i];

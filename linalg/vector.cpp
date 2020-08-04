@@ -121,6 +121,7 @@ Vector &Vector::operator=(const Vector &v)
    v.UseDevice(use_dev);
    // keep 'data' where it is, unless 'use_dev' is true
    if (use_dev) { Write(); }
+   Runtime::Memcpy("CopyFrom", Write(), v.Read(), v.Size());
    data.CopyFrom(v.data, v.Size());
 #endif
    return *this;
@@ -1028,7 +1029,8 @@ double Vector::operator*(const Vector &v) const
 #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) || defined(MFEM_USE_OPENMP)
    auto m_data = Read(use_dev);
 #else
-   Read(use_dev);
+   //Read(use_dev);
+   const auto m_data = Read(use_dev);
 #endif
    auto v_data = v.Read(use_dev);
 
@@ -1070,16 +1072,14 @@ double Vector::operator*(const Vector &v) const
 #endif
    if (Device::Allows(Backend::DEBUG))
    {
+      dbg("DEBUG dot");
       const int N = size;
-      auto v_data = v.Read();
-      auto m_data = Read();
-      Vector dot(1);
-      dot.UseDevice(true);
-      auto d_dot = dot.Write();
-      dot = 0.0;
-      MFEM_FORALL(i, N, d_dot[0] += m_data[i] * v_data[i];);
-      dot.HostReadWrite();
-      return dot[0];
+      //const auto v_data = v.Read();
+
+      double dot = 0.0;
+      for (int i=0; i<N; i++) { dot += m_data[i] * v_data[i]; }
+      //MFEM_FORALL(i, N, dot[0] += m_data[i] * v_data[i];);
+      return dot;
    }
 vector_dot_cpu:
    return operator*(v_data);

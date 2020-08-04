@@ -150,10 +150,13 @@ void OperatorJacobiSmoother::Setup(const Vector &diag)
 {
    residual.UseDevice(true);
    const double delta = damping;
+
    auto D = diag.Read();
    auto DI = dinv.Write();
    MFEM_FORALL(i, N, DI[i] = delta / D[i]; );
+
    auto I = ess_tdof_list.Read();
+   dinv.Write();
    MFEM_FORALL(i, ess_tdof_list.Size(), DI[I[i]] = delta; );
 }
 
@@ -173,8 +176,8 @@ void OperatorJacobiSmoother::Mult(const Vector &x, Vector &y) const
       y.UseDevice(true);
       y = 0.0;
    }
-   auto DI = dinv.Read();
-   auto R = residual.Read();
+   const auto DI = Runtime::Name("dinv",dinv.Read());
+   const auto R = Runtime::Name("residual",residual.Read());
    auto Y = y.ReadWrite();
    MFEM_FORALL(i, N, Y[i] += DI[i] * R[i]; );
 }
@@ -536,14 +539,28 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
 {
    int i;
    double r0, den, nom, nom0, betanom, alpha, beta;
-   Array<double> btnm(1), dn(1);
+   Array<double> nm0(1), btnm(1), dn(1);
    Array<int*> iter(1); iter[0]=&i;
+
    dbg("");
-   //Runtime::Start();
+   Runtime::Start();
+   Runtime::Name("b", b.Read());
+   Runtime::Name("x", x.Read());
+
+   Runtime::Name("d", d.Read());
+   Runtime::Name("r", r.Read());
+   Runtime::Name("z", z.Read());
+
+   Runtime::Name("betanom", btnm.Read());
+   Runtime::Name("nom", nm0.Read());
+   Runtime::Name("den", dn.Read());
+   Runtime::Name("iter", iter.Read());
+   Runtime::InOutClear();
+
    if (iterative_mode)
    {
       dbg("iterative_mode, oper->Mult");
-      oper->Mult(x, r);
+      oper->Mult(x, r);  // r = A x
       dbg("iterative_mode, r = b - A x");
       subtract(b, r, r); // r = b - A x
    }
@@ -567,16 +584,25 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       dbg("d = r");
       d = r;
    }
+
    dbg("Dot");
    nom0 = nom = Dot(d, r);
+   Runtime::Name("nm0", nm0.Write());
+   Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "Dot(d,r)");
    MFEM_ASSERT(IsFinite(nom), "nom = " << nom);
+
+
    if (print_level == 1 || print_level == 3)
    {
       mfem::out << "   Iteration : " << setw(3) << 0 << "  (B r, r) = "
                 << nom << (print_level == 3 ? " ...\n" : "\n");
    }
+
    Monitor(0, nom, r, x);
 
+   nm0.Read();
+   x.Write();
+   Runtime::Cond("nom < 0.0)");
    if (nom < 0.0)
    {
       if (print_level >= 0)
@@ -587,11 +613,15 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       converged = 0;
       final_iter = 0;
       final_norm = nom;
+      Runtime::Return();
       return;
    }
+
    r0 = std::max(nom*rel_tol*rel_tol, abs_tol*abs_tol);
    dbg("r0=%f",r0);
-   //Runtime::Cond("nom <= r0)");
+   nm0.Read();
+   x.Write();
+   Runtime::Cond("nom <= r0)");
    if (nom <= r0)
    {
       converged = 1;
@@ -603,10 +633,16 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
 
    dbg("oper->Mult(d, z)");
    oper->Mult(d, z);  // z = A d
+
    dbg("den = Dot(z, d)");
    den = Dot(z, d);
+   Runtime::Name("dn", dn.Write());
+   Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "Dot(z,d)");
    MFEM_ASSERT(IsFinite(den), "den = " << den);
-   //Runtime::Cond("den <= 0.0");
+
+   dn.Read();
+   x.Write();
+   Runtime::Cond("den <= 0.0");
    if (den <= 0.0)
    {
       if (Dot(d, d) > 0.0 && print_level >= 0)
@@ -628,13 +664,7 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
    converged = 0;
    final_iter = max_iter;
 
-   Runtime::Start();
-   Runtime::Name("b", b.Read());
-   Runtime::Name("x", x.Read());
-   Runtime::Name("d", d.Read());
-   Runtime::Name("r", r.Read());
-   Runtime::Name("z", z.Read());
-   Runtime::InOutClear();
+   Runtime::For();
    for (i = 1; true; )
    {
       dbg("\033[7mCG iter start");
@@ -655,10 +685,14 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
       {
          dbg("Dot(r, r)");
          betanom = Dot(r, r);
-         Runtime::Name("betanom", btnm.Write());
-         Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "eq");
       }
+      Runtime::Name("betanom", btnm.Write());
+      Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "Dot(r,r)");
       MFEM_ASSERT(IsFinite(betanom), "betanom = " << betanom);
+
+      btnm.Read();
+      x.Write();
+      Runtime::Cond("betanom < 0.0");
       if (betanom < 0.0)
       {
          if (print_level >= 0)
@@ -679,6 +713,11 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
 
       Monitor(i, betanom, r, x);
 
+      {
+         btnm.Read();
+         x.Write();
+         Runtime::Cond("betanom < r0");
+      }
       if (betanom < r0)
       {
          btnm.Read();
@@ -698,11 +737,10 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
          Runtime::Stop();
          break;
       }
-      {
-         Runtime::Name("iter", iter.Read());
-         x.Write();
-         Runtime::Cond("++i > max_iter");
-      }
+
+      Runtime::Name("iter", iter.Read());
+      x.Write();
+      Runtime::Cond("++i > max_iter");
       if (++i > max_iter)
       {
          Runtime::Break();
@@ -720,18 +758,19 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
          dbg("d = r + beta d");
          add(r, beta, d, d);
       }
+
       dbg("z = A d");
       oper->Mult(d, z);       //  z = A d
+
       dbg("Dot(d, z)");
       den = Dot(d, z);
-      Runtime::Name("dn", dn.Write());
-      Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "eq");
+      Runtime::Name("den", dn.Write());
+      Runtime::Kernel(true, __FILE__, __LINE__, __FUNCTION__, "Dot(d,z)");
       MFEM_ASSERT(IsFinite(den), "den = " << den);
-      {
-         dn.Read();
-         x.Write();
-         Runtime::Cond("den <= 0.0)"); // will grab the last Read from Dot
-      }
+
+      dn.Read();
+      x.Write();
+      Runtime::Cond("den <= 0.0)"); // will grab the last Read from Dot
       if (den <= 0.0)
       {
          if (Dot(d, d) > 0.0 && print_level >= 0)
@@ -746,12 +785,12 @@ void CGSolver::Mult(const Vector &b, Vector &x) const
             break;
          }
       }
+
       nom = betanom;
-      //dbg("CG end of iter");
-      Runtime::Loop();
-#warning return
-      return;
+      dbg("CG end of iter");
+      Runtime::Loop(); return;
    }
+
    if (print_level >= 0 && !converged)
    {
       if (print_level != 1)

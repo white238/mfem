@@ -445,7 +445,10 @@ void ConstrainedOperator::EliminateRHS(const Vector &x, Vector &b) const
 
 void ConstrainedOperator::Mult(const Vector &x, Vector &y) const
 {
-   //dbg("");
+   dbg("");
+   Runtime::Name("z", z.Read());
+   Runtime::InOutClear();
+
    const int csz = constraint_list.Size();
    if (csz == 0)
    {
@@ -454,22 +457,22 @@ void ConstrainedOperator::Mult(const Vector &x, Vector &y) const
       return;
    }
 
-   //dbg("z = x;");
+   dbg("z = x;");
    z = x;
 
    //dbg("d_z[idx[i]] = 0.0");
    auto idx = Runtime::Name("constraint_list", constraint_list.Read());
    // Use read+write access - we are modifying sub-vector of z
-   auto d_z = Runtime::Name("z", z.ReadWrite());
+   auto d_z = z.ReadWrite();
    MFEM_FORALL(i, csz, d_z[idx[i]] = 0.0;);
 
-   //dbg("A->Mult(z, y);");
+   dbg("A->Mult(z, y);");
    A->Mult(z, y);
 
    //dbg("d_y[id] = d_x[id]; // with idx");
-   auto d_x = Runtime::Name("x", x.Read());
+   const auto d_x = x.Read();
    // Use read+write access - we are modifying sub-vector of y
-   auto d_y = Runtime::Name("y", y.ReadWrite());
+   auto d_y = y.ReadWrite();
    MFEM_FORALL(i, csz,
    {
       const int id = idx[i];

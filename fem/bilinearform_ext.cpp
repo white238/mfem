@@ -177,7 +177,11 @@ void PABilinearFormExtension::FormLinearSystem(const Array<int> &ess_tdof_list,
 
 void PABilinearFormExtension::Mult(const Vector &x, Vector &y) const
 {
-   //dbg("");
+   dbg("");
+   Runtime::Name("xe", localX.Read());
+   Runtime::Name("ye", localY.Read());
+   Runtime::InOutClear();
+
    Array<BilinearFormIntegrator*> &integrators = *a->GetDBFI();
 
    const int iSz = integrators.Size();

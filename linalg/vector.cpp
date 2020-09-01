@@ -1079,7 +1079,7 @@ double Vector::operator*(const Vector &v) const
       return prod;
    }
 #endif
-   if (Device::Allows(Backend::DEBUG))
+   if (Device::Allows(Backend::DEBUG_DEVICE))
    {
       dbg("DEBUG dot");
       const int N = size;
@@ -1137,7 +1137,7 @@ double Vector::Min() const
    }
 #endif
 
-   if (Device::Allows(Backend::DEBUG))
+   if (Device::Allows(Backend::DEBUG_DEVICE))
    {
       const int N = size;
       auto m_data = Read();

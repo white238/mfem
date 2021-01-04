@@ -5,6 +5,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <unistd.h>
 
 using namespace std;
 using namespace mfem;
@@ -21,7 +22,7 @@ static double theta;
 static Array<double> offsets;
 constexpr int nb_discs_max = 6;
 constexpr double sharpness = 100.0;
-static TestFunction test_func = STEPS;
+static constexpr TestFunction test_func = STEPS;
 
 static double x0_steps(const Vector &x)
 {
@@ -61,13 +62,113 @@ static double x0(const Vector &x)
 }
 
 // *****************************************************************************
+void Drl4Amr::MakeMeshPeriodic()
+{
+   if (!periodic) { return; }
+   dbg("Periodic!");
+   mesh.PrintCharacteristics();
+   socketstream glvis;
+   glvis.open(vishost, visport);
+
+   const int NX = nx + 1 + 1;
+   const int NY = ny + 1 + 1;
+   const int NV = mesh.GetNV();
+   dbg("NV:%d, NX:%d, NY:%d",NV,NX,NY);
+   Array<int> v2v(NV);
+
+   for (int i = 0; i < NV; i++)
+   {
+      if (i==(NV-1))
+      {
+         const int n = 0;
+         dbg("\033[31mC1: %d -> %d",i,n);
+         v2v[i] = n;
+         continue;
+      }
+      if (i >= (NV-NX)) // Y1
+      {
+         const int n = i - (NY-1)*NX;
+         dbg("Y1: %d -> %d",i, n);
+         v2v[i] = n;
+         continue;
+      }
+
+      if (i < (NX-1)) // Y0
+      {
+         dbg("Y0: %d -> %d",i, i);
+         v2v[i] = i;
+         continue;
+      }
+
+      if (((i+1) % NX) == 0) // X1
+      {
+         const int n = i + 1 - NX;
+         dbg("\033[31mX1: %d -> %d",i,n);
+         v2v[i] = n;
+         continue;
+      }
+
+      if ((i % NX) == 0) // X0
+      {
+         dbg("X0: %d -> %d",i,i);
+         v2v[i] = i;
+         continue;
+      }
+      dbg("\033[32m%d -> %d",i,i);
+      v2v[i] = i;
+   }
+
+   // renumber elements
+   for (int i = 0; i < mesh.GetNE(); i++)
+   {
+      Element *el = mesh.GetElement(i);
+      int *v = el->GetVertices();
+      int nv = el->GetNVertices();
+      for (int j = 0; j < nv; j++)
+      {
+         v[j] = v2v[v[j]];
+      }
+   }
+   // renumber boundary elements
+   for (int i = 0; i < mesh.GetNBE(); i++)
+   {
+      Element *el = mesh.GetBdrElement(i);
+      int *v = el->GetVertices();
+      int nv = el->GetNVertices();
+      for (int j = 0; j < nv; j++)
+      {
+         v[j] = v2v[v[j]];
+      }
+   }
+   mesh.RemoveUnusedVertices();
+   mesh.RemoveInternalBoundaries();
+
+   mesh.PrintCharacteristics();
+   MFEM_VERIFY(mesh.GetNBE() == 0, "GetNBE should be 0!");
+   MFEM_VERIFY(mesh.EulerNumber2D() == 0, "EulerNumber2D should be 0!");
+
+   if (glvis.good())
+   {
+      glvis.precision(8);
+      glvis << "mesh" << std::endl << mesh << std::flush;
+      glvis << "window_title '" << "Mesh" << "'" << std::endl
+            << "window_geometry "
+            << 0 << " " << 0 << " " << visw << " " << vish << std::endl
+            << "keys mgAnn" << std::endl;
+      glvis.close();
+   }
+   exit(0);
+}
+
+// *****************************************************************************
 Drl4Amr::Drl4Amr(int order, int seed):
    order(order),
    seed(seed != 0 ? seed : time(NULL)),
    device(device_config),
-   mesh(nx, ny, quads, generate_edges, sx, sy, sfc),
+   mesh(nx + (periodic?1:0), ny+ (periodic?1:0),
+        quads, generate_edges, sx, sy, sfc),
    image_mesh(GetImageX(), GetImageY(), quads, false, sx, sy, false),
-   dim(mesh.Dimension()),
+   dim((MakeMeshPeriodic(), mesh.Dimension())),
    sdim(mesh.SpaceDimension()),
    h1fec(order, dim, BasisType::Positive),
    l2fec(0, dim),
@@ -104,11 +205,11 @@ Drl4Amr::Drl4Amr(int order, int seed):
    // Connect to GLVis.
    if (visualization)
    {
-      vis[0].open(vishost, visport);
+      vis[0].open(vishost, visport);/*
       vis[1].open(vishost, visport);
       vis[2].open(vishost, visport);
       vis[3].open(vishost, visport);
-      vis[4].open(vishost, visport);
+      vis[4].open(vishost, visport);*/
    }
 
    // Initialize theta, offsets and x from x0_coeff
@@ -129,8 +230,9 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[0] << "solution" << endl << mesh << solution << flush;
       vis[0] << "window_title '" << "Solution" << "'" << endl
              << "window_geometry "
-             << 0 << " " << 0 << " " << visw << " " << vish << endl
-             << "keys mgA" << endl;
+             << 0 << " " << 0 << " " << visw << " " << vish << endl;
+      //<< "keys mgA" << endl;
+
    }
 
    if (visualization && vis[1].good())
@@ -140,8 +242,8 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[1] << "window_title '" << "Mesh" << "'" << endl
              << "window_geometry "
              << (vish + border) << " " << 0
-             << " " << visw << " " << vish  << endl
-             << "keys mgeA" << endl;
+             << " " << visw << " " << vish  << endl;
+      //<< "keys mgeA" << endl;
    }
 
    if (visualization && vis[2].good())
@@ -153,8 +255,8 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[2] << "window_title '" << "Node Image" << "'" << endl
              << "window_geometry "
              <<  (2 * vish + border) << " " << 0
-             << " " << visw << " " << vish << endl
-             << "keys RjgA" << endl;
+             << " " << visw << " " << vish << endl;
+      //<< "keys RjgA" << endl;
    }
 
    if (visualization && vis[3].good())
@@ -166,8 +268,8 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[3] << "window_title '" << "Elem Depth" << "'" << endl
              << "window_geometry "
              <<  (3 * vish + border) << " " << 0
-             << " " << visw << " " << vish << endl
-             << "keys RjgA" << endl;
+             << " " << visw << " " << vish << endl;
+      //<< "keys RjgA" << endl;
    }
 
    if (visualization && vis[4].good())
@@ -179,8 +281,8 @@ Drl4Amr::Drl4Amr(int order, int seed):
       vis[4] << "window_title '" << "Elem Id" << "'" << endl
              << "window_geometry "
              <<  (4 * vish + border) << " " << 0
-             << " " << visw << " " << vish << endl
-             << "keys RjgA" << endl;
+             << " " << visw << " " << vish << endl;
+      //<< "keys RjgA" << endl;
    }
 
    // Set up an error estimator. Here we use the Zienkiewicz-Zhu estimator
@@ -197,6 +299,19 @@ Drl4Amr::Drl4Amr(int order, int seed):
    refiner.SetTotalErrorFraction(0.7);
 }
 
+// *****************************************************************************
+int Drl4Amr::Save(const char *base)
+{
+   dbg("Saving");
+   std::string basename(base);
+   ofstream mesh_ofs(basename + ".mesh");
+   mesh_ofs.precision(8);
+   mesh.Print(mesh_ofs);
+   ofstream sol_ofs(basename + ".gf");
+   sol_ofs.precision(8);
+   solution.Save(sol_ofs);
+   return 0;
+}
 
 // *****************************************************************************
 int Drl4Amr::Compute()
@@ -221,7 +336,6 @@ int Drl4Amr::Compute()
    if (visualization && vis[0].good())
    {
       vis[0] << "solution\n" << mesh << solution << flush;
-      fflush(0);
    }
    if (cdofs > max_dofs)
    {
@@ -241,7 +355,7 @@ int Drl4Amr::Refine(int el_to_refine)
       const int depth = mesh.ncmesh->GetElementDepth(el_to_refine);
       if (depth == max_depth) { return 1; }
       MFEM_VERIFY(depth <= max_depth, "max_amr_depth error");
-      dbg("Refine el:%d, depth:%d", el_to_refine, depth);
+      // dbg("Refine el:%d, depth:%d", el_to_refine, depth);
       Array<Refinement> refinements(1);
       refinements[0] = Refinement(el_to_refine);
       mesh.GeneralRefinement(refinements, 1, 1);
@@ -270,7 +384,7 @@ int Drl4Amr::Refine(int el_to_refine)
    if (visualization && vis[1].good())
    {
       vis[1] << "mesh\n" << mesh << flush;
-      fflush(0);
+      //fflush(0);
    }
    return 0;
 }
@@ -330,7 +444,7 @@ double *Drl4Amr::GetImage()
    {
       GridFunction gf(&image_fes, solution_image.GetData());
       vis[2] << "solution" << endl << image_mesh << gf << flush;
-      fflush(0);
+      //fflush(0);
    }
    return solution_image.GetData();
 }
@@ -354,7 +468,7 @@ double *Drl4Amr::GetIdField()
    {
       GridFunction gf(&image_fes, elem_id.GetData());
       vis[4] << "solution" << endl << image_mesh << gf << flush;
-      fflush(0);
+      //fflush(0);
    }
    return elem_id.GetData();
 }
@@ -379,7 +493,7 @@ double *Drl4Amr::GetDepthField()
    {
       GridFunction gf(&image_fes, elem_depth.GetData());
       vis[3] << "solution" << endl << image_mesh << gf << flush;
-      fflush(0);
+      // fflush(0);
    }
    return elem_depth.GetData();
 }

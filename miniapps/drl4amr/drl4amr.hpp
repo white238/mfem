@@ -9,8 +9,8 @@ using namespace mfem;
 class Drl4Amr
 {
 private:
-   const int nx = 8;
-   const int ny = 8;
+   const int nx = 3;
+   const int ny = 3;
    const int max_depth = 2;
    const int max_dofs = 5000;
    const Element::Type quads = Element::QUADRILATERAL;
@@ -18,6 +18,7 @@ private:
    const double sx = 1.0;
    const double sy = 1.0;
    const bool sfc = false; // space-filling curve ordering
+   const bool periodic = false;
    const char *device_config = "cpu";
    const bool visualization = true;
    const char *vishost = "localhost";
@@ -46,10 +47,14 @@ private:
    ThresholdRefiner refiner;
    int iteration;
 
+private:
+   void MakeMeshPeriodic();
+
 public:
    Drl4Amr(int order, int seed =0);
 
    int Compute();
+   int Save(const char *base);
 
    /// If el_to_refine is positive or null, will refine this element only,
    /// if el_to_refine is strictly negative, it will use the built-in refiner.

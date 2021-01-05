@@ -10,12 +10,12 @@ using namespace mfem;
 
 int main(int argc, char *argv[])
 {
-   int N = 16;
    int P = 2;
-   double EPS = 0.01;
+   int N = 16;
+   double EPS = 1e-2;
    bool periodic = false;
    bool visualization = false;
-   const char *base_mesh_save = "mesh";
+   const char *base_mesh_save = "";
    constexpr int seed = 0x973afb51;
 
    OptionsParser args(argc, argv);
@@ -28,6 +28,14 @@ int main(int argc, char *argv[])
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
    args.AddOption(&base_mesh_save, "-f", "--file", "File basename.");
+   args.Parse();
+   if (!args.Good())
+   {
+      args.PrintUsage(std::cout);
+      return 1;
+   }
+   args.PrintOptions(std::cout);
+
    Drl4Amr sim(P, visualization, periodic, seed);
 
    for (int i = 0; (i<N) && sim.GetNorm() > EPS; i++)
@@ -39,6 +47,6 @@ int main(int argc, char *argv[])
       sim.GetIdField();
       sim.GetDepthField();
    }
-   sim.Save(base_mesh_save);
+   if (strlen(base_mesh_save) > 0) { sim.Save(base_mesh_save); }
    return 0;
 }

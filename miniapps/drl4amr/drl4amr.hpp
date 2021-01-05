@@ -18,9 +18,7 @@ private:
    const double sx = 1.0;
    const double sy = 1.0;
    const bool sfc = false; // space-filling curve ordering
-   const bool periodic = false;
    const char *device_config = "cpu";
-   const bool visualization = true;
    const char *vishost = "localhost";
    const int visport = 19916;
    const int visw = 480;
@@ -28,6 +26,8 @@ private:
    socketstream vis[5];
 
    const int order;
+   const bool visualization;
+   const bool periodic;
    const long int seed;
    Device device;
    Mesh mesh, image_mesh;
@@ -48,13 +48,15 @@ private:
    int iteration;
 
 private:
-   void MakeMeshPeriodic();
+   void MakePeriodicMesh();
 
 public:
    Drl4Amr(int order, int seed =0);
+   Drl4Amr(int order, bool periodic, int seed =0);
+   Drl4Amr(int order, bool visualization, bool periodic, int seed =0);
 
    int Compute();
-   int Save(const char *base);
+   void Save(const char*);
 
    /// If el_to_refine is positive or null, will refine this element only,
    /// if el_to_refine is strictly negative, it will use the built-in refiner.

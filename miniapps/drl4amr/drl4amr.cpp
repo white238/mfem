@@ -62,32 +62,43 @@ static double x0(const Vector &x)
 }
 
 // *****************************************************************************
-void Drl4Amr::MakeMeshPeriodic()
+void Drl4Amr::MakePeriodicMesh()
 {
    if (!periodic) { return; }
-   dbg("Periodic!");
-   mesh.PrintCharacteristics();
-   socketstream glvis;
-   glvis.open(vishost, visport);
 
-   const int NX = nx + 1 + 1;
-   const int NY = ny + 1 + 1;
+   dbg("Periodic!\n");
+   mesh.PrintCharacteristics();
+
+   socketstream glvis;
+   //glvis.open(vishost, visport);
+
+   const int NX = nx + 1;
+   const int NY = ny + 1;
    const int NV = mesh.GetNV();
    dbg("NV:%d, NX:%d, NY:%d",NV,NX,NY);
    Array<int> v2v(NV);
 
+   /*                   Y1
+    * 0 1 2 0      12 13 14 15
+    * 6 7 8 6      8  9  10 11
+    * 3 4 5 3   X0 4  5  6  7 X1
+    * 0 1 2 0      0  1  2  3
+    *                  Y0
+    */
+   int k = 0;
    for (int i = 0; i < NV; i++)
    {
-      if (i==(NV-1))
+      if (i==(NV-1)) // last corner
       {
          const int n = 0;
          dbg("\033[31mC1: %d -> %d",i,n);
          v2v[i] = n;
          continue;
       }
+
       if (i >= (NV-NX)) // Y1
       {
-         const int n = i - (NY-1)*NX;
+         const int n = i % NX;
          dbg("Y1: %d -> %d",i, n);
          v2v[i] = n;
          continue;
@@ -95,53 +106,60 @@ void Drl4Amr::MakeMeshPeriodic()
 
       if (i < (NX-1)) // Y0
       {
-         dbg("Y0: %d -> %d",i, i);
-         v2v[i] = i;
+         dbg("Y0: %d -> %d",i, k);
+         v2v[i] = k++;
          continue;
       }
 
       if (((i+1) % NX) == 0) // X1
       {
-         const int n = i + 1 - NX;
-         dbg("\033[31mX1: %d -> %d",i,n);
+         const int n = k + 1 - NX;
+         dbg("\033[31mX1: %d -> %d (k:%d)",i,n,k);
          v2v[i] = n;
          continue;
       }
 
       if ((i % NX) == 0) // X0
       {
-         dbg("X0: %d -> %d",i,i);
-         v2v[i] = i;
+         dbg("X0: %d -> %d",i,k);
+         v2v[i] = k++;
          continue;
       }
-      dbg("\033[32m%d -> %d",i,i);
-      v2v[i] = i;
+
+      dbg("\033[32m%d -> %d",i,k);
+      v2v[i] = k++;
    }
 
+   // Convert nodes to discontinuous GridFunction
+   constexpr int space_dim = 2;
+   mesh.SetCurvature(1, periodic, space_dim, Ordering::byVDIM);
+
    // renumber elements
-   for (int i = 0; i < mesh.GetNE(); i++)
+   for (int e = 0; e < mesh.GetNE(); e++)
    {
-      Element *el = mesh.GetElement(i);
-      int *v = el->GetVertices();
-      int nv = el->GetNVertices();
-      for (int j = 0; j < nv; j++)
+      Element *el = mesh.GetElement(e);
+      int *vertices = el->GetVertices();
+      const int nv = el->GetNVertices();
+      for (int v = 0; v < nv; v++)
       {
-         v[j] = v2v[v[j]];
+         vertices[v] = v2v[vertices[v]];
       }
    }
    // renumber boundary elements
-   for (int i = 0; i < mesh.GetNBE(); i++)
+   for (int e = 0; e < mesh.GetNBE(); e++)
    {
-      Element *el = mesh.GetBdrElement(i);
-      int *v = el->GetVertices();
-      int nv = el->GetNVertices();
-      for (int j = 0; j < nv; j++)
+      Element *el = mesh.GetBdrElement(e);
+      int *vertices = el->GetVertices();
+      const int nv = el->GetNVertices();
+      for (int v = 0; v < nv; v++)
       {
-         v[j] = v2v[v[j]];
+         vertices[v] = v2v[vertices[v]];
       }
    }
    mesh.RemoveUnusedVertices();
    mesh.RemoveInternalBoundaries();
+   mesh.CheckElementOrientation(true);
+   mesh.FinalizeTopology();
 
    mesh.PrintCharacteristics();
    MFEM_VERIFY(mesh.GetNBE() == 0, "GetNBE should be 0!");
@@ -154,21 +172,30 @@ void Drl4Amr::MakeMeshPeriodic()
       glvis << "window_title '" << "Mesh" << "'" << std::endl
             << "window_geometry "
             << 0 << " " << 0 << " " << visw << " " << vish << std::endl
-            << "keys mgAnn" << std::endl;
+            << "keys nn" << std::endl;
       glvis.close();
    }
-   exit(0);
+   //exit(0);
 }
 
 // *****************************************************************************
-Drl4Amr::Drl4Amr(int order, int seed):
+Drl4Amr::Drl4Amr(int order, int seed) :
+   Drl4Amr(order, false, false, seed) { }
+
+// *****************************************************************************
+Drl4Amr::Drl4Amr(int order, bool periodic, int seed):
+   Drl4Amr(order, false, periodic, seed) { }
+
+// *****************************************************************************
+Drl4Amr::Drl4Amr(int order, bool visualization, bool periodic, int seed):
    order(order),
+   visualization(visualization),
+   periodic(periodic),
    seed(seed != 0 ? seed : time(NULL)),
    device(device_config),
-   mesh(nx + (periodic?1:0), ny+ (periodic?1:0),
-        quads, generate_edges, sx, sy, sfc),
+   mesh(nx, ny, quads, generate_edges, sx, sy, sfc),
    image_mesh(GetImageX(), GetImageY(), quads, false, sx, sy, false),
-   dim((MakeMeshPeriodic(), mesh.Dimension())),
+   dim((MakePeriodicMesh(), mesh.Dimension())),
    sdim(mesh.SpaceDimension()),
    h1fec(order, dim, BasisType::Positive),
    l2fec(0, dim),
@@ -195,8 +222,10 @@ Drl4Amr::Drl4Amr(int order, int seed):
    device.Print();
 
    mesh.EnsureNCMesh();
-   mesh.SetCurvature(order, false, sdim, Ordering::byNODES);
+   mesh.SetCurvature(order, periodic, sdim, Ordering::byNODES);
    mesh.PrintCharacteristics();
+
+   this->Save("ini");
 
    h1fes.Update();
    l2fes.Update();
@@ -205,11 +234,11 @@ Drl4Amr::Drl4Amr(int order, int seed):
    // Connect to GLVis.
    if (visualization)
    {
-      vis[0].open(vishost, visport);/*
+      vis[0].open(vishost, visport);
       vis[1].open(vishost, visport);
       vis[2].open(vishost, visport);
       vis[3].open(vishost, visport);
-      vis[4].open(vishost, visport);*/
+      vis[4].open(vishost, visport);
    }
 
    // Initialize theta, offsets and x from x0_coeff
@@ -300,17 +329,17 @@ Drl4Amr::Drl4Amr(int order, int seed):
 }
 
 // *****************************************************************************
-int Drl4Amr::Save(const char *base)
+void Drl4Amr::Save(const char *base)
 {
-   dbg("Saving");
+   dbg("Saving mesh '%s.mesh'", base);
    std::string basename(base);
    ofstream mesh_ofs(basename + ".mesh");
    mesh_ofs.precision(8);
    mesh.Print(mesh_ofs);
+   dbg("Saving solution '%s.gf'\n", base);
    ofstream sol_ofs(basename + ".gf");
    sol_ofs.precision(8);
    solution.Save(sol_ofs);
-   return 0;
 }
 
 // *****************************************************************************
@@ -336,6 +365,7 @@ int Drl4Amr::Compute()
    if (visualization && vis[0].good())
    {
       vis[0] << "solution\n" << mesh << solution << flush;
+      fflush(0);
    }
    if (cdofs > max_dofs)
    {
@@ -384,7 +414,7 @@ int Drl4Amr::Refine(int el_to_refine)
    if (visualization && vis[1].good())
    {
       vis[1] << "mesh\n" << mesh << flush;
-      //fflush(0);
+      fflush(0);
    }
    return 0;
 }
@@ -444,7 +474,7 @@ double *Drl4Amr::GetImage()
    {
       GridFunction gf(&image_fes, solution_image.GetData());
       vis[2] << "solution" << endl << image_mesh << gf << flush;
-      //fflush(0);
+      fflush(0);
    }
    return solution_image.GetData();
 }
@@ -468,7 +498,7 @@ double *Drl4Amr::GetIdField()
    {
       GridFunction gf(&image_fes, elem_id.GetData());
       vis[4] << "solution" << endl << image_mesh << gf << flush;
-      //fflush(0);
+      fflush(0);
    }
    return elem_id.GetData();
 }

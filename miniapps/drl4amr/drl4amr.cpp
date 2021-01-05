@@ -67,11 +67,6 @@ void Drl4Amr::MakePeriodicMesh()
    if (!periodic) { return; }
 
    dbg("Periodic!\n");
-   mesh.PrintCharacteristics();
-
-   socketstream glvis;
-   //glvis.open(vishost, visport);
-
    const int NX = nx + 1;
    const int NY = ny + 1;
    const int NV = mesh.GetNV();
@@ -164,18 +159,6 @@ void Drl4Amr::MakePeriodicMesh()
    mesh.PrintCharacteristics();
    MFEM_VERIFY(mesh.GetNBE() == 0, "GetNBE should be 0!");
    MFEM_VERIFY(mesh.EulerNumber2D() == 0, "EulerNumber2D should be 0!");
-
-   if (glvis.good())
-   {
-      glvis.precision(8);
-      glvis << "mesh" << std::endl << mesh << std::flush;
-      glvis << "window_title '" << "Mesh" << "'" << std::endl
-            << "window_geometry "
-            << 0 << " " << 0 << " " << visw << " " << vish << std::endl
-            << "keys nn" << std::endl;
-      glvis.close();
-   }
-   //exit(0);
 }
 
 // *****************************************************************************
@@ -224,8 +207,6 @@ Drl4Amr::Drl4Amr(int order, bool visualization, bool periodic, int seed):
    mesh.EnsureNCMesh();
    mesh.SetCurvature(order, periodic, sdim, Ordering::byNODES);
    mesh.PrintCharacteristics();
-
-   this->Save("ini");
 
    h1fes.Update();
    l2fes.Update();

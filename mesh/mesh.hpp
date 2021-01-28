@@ -44,6 +44,8 @@ struct Refinement;
 /** An enum type to specify if interior or boundary faces are desired. */
 enum class FaceType : bool {Interior, Boundary};
 
+enum class TetSplitting { SIX = 6, EIGHT = 8 };
+
 #ifdef MFEM_USE_MPI
 class ParMesh;
 class ParNCMesh;
@@ -483,7 +485,7 @@ protected:
    // Internal helper used in MakeSimplicial (and ParMesh::MakeSimplicial).
    void MakeSimplicial_(Mesh &orig_mesh, int *vglobal);
 
-   void MakeNonconformingSimplicial_(Mesh &orig_mesh);
+   void MakeNonconformingSimplicial_(Mesh &orig_mesh, TetSplitting split);
 
 public:
 
@@ -542,7 +544,12 @@ public:
        depending on the configuration. */
    static Mesh MakeSimplicial(Mesh &orig_mesh);
 
-   static Mesh MakeNonconformingSimplicial(Mesh &orig_mesh);
+   /** Create a mesh by splitting each element of @a orig_mesh into simplices.
+       Hexes are split into six or eight tets, according to @a split. The
+       resulting mesh is @b not generally a valid mesh, but it can be useful
+       for construction low-order preconditioners. */
+   static Mesh MakeNonconformingSimplicial(
+      Mesh &orig_mesh, TetSplitting split=TetSplitting::SIX);
 
    /// Construct a Mesh from the given primary data.
    /** The array @a vertices is used as external data, i.e. the Mesh does not

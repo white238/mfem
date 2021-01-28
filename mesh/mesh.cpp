@@ -3968,10 +3968,10 @@ Mesh Mesh::MakeSimplicial(Mesh &orig_mesh)
    return mesh;
 }
 
-Mesh Mesh::MakeNonconformingSimplicial(Mesh &orig_mesh)
+Mesh Mesh::MakeNonconformingSimplicial(Mesh &orig_mesh, TetSplitting split)
 {
    Mesh mesh;
-   mesh.MakeNonconformingSimplicial_(orig_mesh);
+   mesh.MakeNonconformingSimplicial_(orig_mesh, split);
    return mesh;
 }
 
@@ -4295,11 +4295,8 @@ void Mesh::MakeSimplicial_(Mesh &orig_mesh, int *vglobal)
    MFEM_ASSERT(CheckBdrElementOrientation(false) == 0, "");
 }
 
-void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh)
+void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, TetSplitting split)
 {
-   MFEM_VERIFY(orig_mesh.CheckElementOrientation(false) == 0,
-               "Mesh::MakeSimplicial requires a properly oriented input mesh");
-
    int dim = orig_mesh.Dimension();
    int sdim = orig_mesh.SpaceDimension();
 
@@ -4320,22 +4317,32 @@ void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh)
    int ne = orig_mesh.GetNE();
    int nbe = orig_mesh.GetNBE();
 
-   // Split quads into two triangles, hexes into six tets
-   constexpr int ntets = 6, ntris = 2, nv_tri = 3, nv_tet = 4;
-
+   // Split quads into two triangles, hexes into six or eight tets
+   constexpr int ntris = 2, nv_tri = 3, nv_tet = 4;
    static const int trimap[nv_tri*ntris] =
    {
       0, 0,
       1, 2,
       2, 3
    };
-   static const int tetmap[nv_tet*ntets] =
+   static const int tetmap_6[nv_tet*6] =
    {
       0, 0, 1, 1, 1, 1,
       1, 7, 2, 7, 2, 7,
       3, 4, 3, 5, 7, 4,
       7, 1, 7, 6, 6, 5
    };
+   static const int tetmap_8[nv_tet*8] =
+   {
+      0, 1, 5, 3, 0, 0, 1, 0,
+      2, 2, 6, 7, 1, 1, 6, 7,
+      3, 3, 2, 4, 3, 2, 4, 4,
+      7, 5, 7, 6, 4, 5, 5, 5,
+   };
+
+   int ntets = int(split);
+   MFEM_VERIFY(ntets == 6 || ntets == 8, "");
+   const int *tetmap = (ntets == 6) ? tetmap_6 : tetmap_8;
 
    int new_ne = ntets*ne;
    int new_nbe = ntris*nbe;

@@ -1480,6 +1480,54 @@ ParMesh ParMesh::MakeSimplicial(ParMesh &orig_mesh)
    return mesh;
 }
 
+ParMesh ParMesh::MakeNonconformingSimplicial(
+   ParMesh &orig_mesh, TetSplitting split)
+{
+   ParMesh mesh;
+
+   mesh.MyComm = orig_mesh.GetComm();
+   mesh.NRanks = orig_mesh.GetNRanks();
+   mesh.MyRank = orig_mesh.GetMyRank();
+   mesh.glob_elem_offset = -1;
+   mesh.glob_offset_sequence = -1;
+   mesh.gtopo = orig_mesh.gtopo;
+   mesh.have_face_nbr_data = false;
+   mesh.pncmesh = NULL;
+   mesh.meshgen = orig_mesh.meshgen;
+
+   H1_FECollection fec(1, orig_mesh.Dimension());
+   ParFiniteElementSpace fes(&orig_mesh, &fec);
+
+   mesh.MakeNonconformingSimplicial_(orig_mesh, split);
+
+   // count the number of entries in each row of group_s{vert,edge,face}
+   mesh.group_svert.MakeI(mesh.GetNGroups()-1); // exclude the local group 0
+   mesh.group_sedge.MakeI(mesh.GetNGroups()-1);
+   mesh.group_stria.MakeI(mesh.GetNGroups()-1);
+   mesh.group_squad.MakeI(mesh.GetNGroups()-1);
+   for (int gr = 1; gr < mesh.GetNGroups(); gr++)
+   {
+      mesh.group_svert.AddColumnsInRow(gr-1, orig_mesh.GroupNVertices(gr));
+   }
+   mesh.group_svert.MakeJ();
+   mesh.svert_lvert.Reserve(mesh.group_svert.Size_of_connections());
+
+   Array<int> dofs;
+   for (int gr = 1; gr < mesh.GetNGroups(); gr++)
+   {
+      // add shared vertices from original shared vertices
+      const int orig_n_verts = orig_mesh.GroupNVertices(gr);
+      for (int j = 0; j < orig_n_verts; j++)
+      {
+         fes.GetVertexDofs(orig_mesh.GroupVertex(gr, j), dofs);
+         mesh.group_svert.AddConnection(gr-1, mesh.svert_lvert.Append(dofs[0])-1);
+      }
+   }
+   mesh.group_svert.ShiftUpI();
+
+   return mesh;
+}
+
 void ParMesh::Finalize(bool refine, bool fix_orientation)
 {
    const int meshgen_save = meshgen; // Mesh::Finalize() may call SetMeshGen()

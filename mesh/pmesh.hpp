@@ -236,6 +236,14 @@ public:
        See @a Mesh::MakeSimplicial for more details. */
    static ParMesh MakeSimplicial(ParMesh &orig_mesh);
 
+   /** Create a mesh by splitting each element of @a orig_mesh into simplices.
+       Hexes are split into six or eight tets, according to @a split.
+       @b Warning: the resulting @a ParMesh is @b not a valid parallel mesh
+       (shared edges and faces are @b not identified). However, it is useful
+       for consutrcting low-order preconditioners. */
+   static ParMesh MakeNonconformingSimplicial(
+      ParMesh &orig_mesh, TetSplitting split=TetSplitting::SIX);
+
    virtual void Finalize(bool refine = false, bool fix_orientation = false);
 
    virtual void SetAttributes();

@@ -483,6 +483,8 @@ protected:
    // Internal helper used in MakeSimplicial (and ParMesh::MakeSimplicial).
    void MakeSimplicial_(Mesh &orig_mesh, int *vglobal);
 
+   void MakeNonconformingSimplicial_(Mesh &orig_mesh);
+
 public:
 
    Mesh() { SetEmpty(); }
@@ -539,6 +541,8 @@ public:
        3 tetrahedra, and hexahedra are split into either 5 or 6 hexahedra
        depending on the configuration. */
    static Mesh MakeSimplicial(Mesh &orig_mesh);
+
+   static Mesh MakeNonconformingSimplicial(Mesh &orig_mesh);
 
    /// Construct a Mesh from the given primary data.
    /** The array @a vertices is used as external data, i.e. the Mesh does not

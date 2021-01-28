@@ -3968,6 +3968,13 @@ Mesh Mesh::MakeSimplicial(Mesh &orig_mesh)
    return mesh;
 }
 
+Mesh Mesh::MakeNonconformingSimplicial(Mesh &orig_mesh)
+{
+   Mesh mesh;
+   mesh.MakeNonconformingSimplicial_(orig_mesh);
+   return mesh;
+}
+
 void Mesh::MakeSimplicial_(Mesh &orig_mesh, int *vglobal)
 {
    MFEM_VERIFY(orig_mesh.CheckElementOrientation(false) == 0,
@@ -4286,6 +4293,100 @@ void Mesh::MakeSimplicial_(Mesh &orig_mesh, int *vglobal)
 
    MFEM_ASSERT(CheckElementOrientation(false) == 0, "");
    MFEM_ASSERT(CheckBdrElementOrientation(false) == 0, "");
+}
+
+void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh)
+{
+   MFEM_VERIFY(orig_mesh.CheckElementOrientation(false) == 0,
+               "Mesh::MakeSimplicial requires a properly oriented input mesh");
+
+   int dim = orig_mesh.Dimension();
+   int sdim = orig_mesh.SpaceDimension();
+
+   // The nonconforming simplicial mesh is only relevant in 3D. In 1D the mesh
+   // is unchanged, in 2D the simplicial mesh is automatically conforming.
+   if (dim == 1 || dim == 2)
+   {
+      MakeSimplicial_(orig_mesh, NULL);
+      return;
+   }
+
+   Array<Geometry::Type> geoms;
+   orig_mesh.GetGeometries(dim, geoms);
+   MFEM_VERIFY(geoms.Size() == 1 && geoms[0] == Geometry::CUBE,
+               "The original mesh must contain all hexes.");
+
+   int nv = orig_mesh.GetNV();
+   int ne = orig_mesh.GetNE();
+   int nbe = orig_mesh.GetNBE();
+
+   // Split quads into two triangles, hexes into six tets
+   constexpr int ntets = 6, ntris = 2, nv_tri = 3, nv_tet = 4;
+
+   static const int trimap[nv_tri*ntris] =
+   {
+      0, 0,
+      1, 2,
+      2, 3
+   };
+   static const int tetmap[nv_tet*ntets] =
+   {
+      0, 0, 1, 1, 1, 1,
+      1, 7, 2, 7, 2, 7,
+      3, 4, 3, 5, 7, 4,
+      7, 1, 7, 6, 6, 5
+   };
+
+   int new_ne = ntets*ne;
+   int new_nbe = ntris*nbe;
+   InitMesh(dim, sdim, nv, new_ne, new_nbe);
+   // Vertices of the new mesh are same as the original mesh
+   NumOfVertices = nv;
+   for (int i=0; i<nv; ++i)
+   {
+      vertices[i].SetCoords(dim, orig_mesh.vertices[i]());
+   }
+
+   for (int i=0; i<ne; ++i)
+   {
+      const int *v = orig_mesh.elements[i]->GetVertices();
+      const int attrib = orig_mesh.GetAttribute(i);
+      for (int itet=0; itet<ntets; ++itet)
+      {
+         Element *e = NewElement(Geometry::TETRAHEDRON);
+         e->SetAttribute(attrib);
+         int *v2 = e->GetVertices();
+         for (int iv=0; iv<nv_tet; ++iv)
+         {
+            v2[iv] = v[tetmap[itet + iv*ntets]];
+         }
+         AddElement(e);
+      }
+   }
+
+   for (int i=0; i<nbe; ++i)
+   {
+      const int *v = orig_mesh.boundary[i]->GetVertices();
+      const int attrib = orig_mesh.GetBdrAttribute(i);
+      const Geometry::Type orig_geom = orig_mesh.GetBdrElementBaseGeometry(i);
+      MFEM_ASSERT(orig_geom == Geometry::SQUARE, "");
+      for (int itri=0; itri<ntris; ++itri)
+      {
+         Element *be = NewElement(Geometry::TRIANGLE);
+         be->SetAttribute(attrib);
+         int *v2 = be->GetVertices();
+         for (int iv=0; iv<nv_tri; ++iv)
+         {
+            v2[iv] = v[trimap[itri + iv*ntris]];
+         }
+         AddBdrElement(be);
+      }
+   }
+
+   sequence = orig_mesh.GetSequence();
+   last_operation = orig_mesh.last_operation;
+
+   MFEM_ASSERT(CheckElementOrientation(false) == 0, "");
 }
 
 void Mesh::KnotInsert(Array<KnotVector *> &kv)

@@ -4327,7 +4327,7 @@ void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, SimplexSplitting split)
       0, 1, 5, 3, 0, 0, 1, 0,
       2, 2, 6, 7, 1, 1, 6, 7,
       3, 3, 2, 4, 3, 2, 4, 4,
-      7, 5, 7, 6, 4, 5, 5, 5,
+      7, 6, 7, 6, 4, 5, 5, 5,
    };
 
    int el_factor=0, be_factor=0;

@@ -3968,7 +3968,7 @@ Mesh Mesh::MakeSimplicial(Mesh &orig_mesh)
    return mesh;
 }
 
-Mesh Mesh::MakeNonconformingSimplicial(Mesh &orig_mesh, TetSplitting split)
+Mesh Mesh::MakeNonconformingSimplicial(Mesh &orig_mesh, SimplexSplitting split)
 {
    Mesh mesh;
    mesh.MakeNonconformingSimplicial_(orig_mesh, split);
@@ -4295,35 +4295,25 @@ void Mesh::MakeSimplicial_(Mesh &orig_mesh, int *vglobal)
    MFEM_ASSERT(CheckBdrElementOrientation(false) == 0, "");
 }
 
-void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, TetSplitting split)
+void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, SimplexSplitting split)
 {
    int dim = orig_mesh.Dimension();
    int sdim = orig_mesh.SpaceDimension();
 
-   // The nonconforming simplicial mesh is only relevant in 3D. In 1D the mesh
-   // is unchanged, in 2D the simplicial mesh is automatically conforming.
-   if (dim == 1 || dim == 2)
-   {
-      MakeSimplicial_(orig_mesh, NULL);
-      return;
-   }
-
-   Array<Geometry::Type> geoms;
-   orig_mesh.GetGeometries(dim, geoms);
-   MFEM_VERIFY(geoms.Size() == 1 && geoms[0] == Geometry::CUBE,
-               "The original mesh must contain all hexes.");
-
-   int nv = orig_mesh.GetNV();
-   int ne = orig_mesh.GetNE();
-   int nbe = orig_mesh.GetNBE();
-
-   // Split quads into two triangles, hexes into six or eight tets
-   constexpr int ntris = 2, nv_tri = 3, nv_tet = 4;
-   static const int trimap[nv_tri*ntris] =
+   // Split quads into two or four triangles, hexes into six or eight tets
+   constexpr int nv_tri = 3, nv_tet = 4;
+   static const int segmap[2] = {0, 1};
+   static const int trimap_2[nv_tri*2] =
    {
       0, 0,
       1, 2,
       2, 3
+   };
+   static const int trimap_4[nv_tri*4] =
+   {
+      0, 1, 2, 3,
+      1, 2, 3, 0,
+      3, 0, 1, 2
    };
    static const int tetmap_6[nv_tet*6] =
    {
@@ -4340,12 +4330,48 @@ void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, TetSplitting split)
       7, 5, 7, 6, 4, 5, 5, 5,
    };
 
-   int ntets = int(split);
-   MFEM_VERIFY(ntets == 6 || ntets == 8, "");
-   const int *tetmap = (ntets == 6) ? tetmap_6 : tetmap_8;
+   int el_factor=0, be_factor=0;
+   const int *el_map, *be_map;
 
-   int new_ne = ntets*ne;
-   int new_nbe = ntris*nbe;
+   Geometry::Type simplex[4] = {Geometry::POINT, Geometry::SEGMENT, Geometry::TRIANGLE, Geometry::TETRAHEDRON};
+   Array<Geometry::Type> geoms;
+   orig_mesh.GetGeometries(dim, geoms);
+
+   if (dim == 1)
+   {
+      Mesh copy(orig_mesh);
+      Swap(copy, true);
+      return;
+   }
+   else if (dim == 2)
+   {
+      MFEM_VERIFY(geoms.Size() == 1 && geoms[0] == Geometry::SQUARE,
+                  "The original mesh must contain all quads.");
+      el_factor = (split == SimplexSplitting::FILL_OUT) ? 2 : 4;
+      be_factor = 1;
+      el_map = (el_factor == 2) ? trimap_2 : trimap_4;
+      be_map = segmap;
+   }
+   else if (dim == 3)
+   {
+      MFEM_VERIFY(geoms.Size() == 1 && geoms[0] == Geometry::CUBE,
+                  "The original mesh must contain all hexes.");
+      el_factor = (split == SimplexSplitting::FILL_OUT) ? 6 : 8;
+      be_factor = 2;
+      el_map = (el_factor == 6) ? tetmap_6 : tetmap_8;
+      be_map = trimap_2;
+   }
+   else
+   {
+      MFEM_ABORT("Bad dimension");
+   }
+
+   int nv = orig_mesh.GetNV();
+   int ne = orig_mesh.GetNE();
+   int nbe = orig_mesh.GetNBE();
+
+   int new_ne = el_factor*ne;
+   int new_nbe = be_factor*nbe;
    InitMesh(dim, sdim, nv, new_ne, new_nbe);
    // Vertices of the new mesh are same as the original mesh
    NumOfVertices = nv;
@@ -4358,14 +4384,14 @@ void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, TetSplitting split)
    {
       const int *v = orig_mesh.elements[i]->GetVertices();
       const int attrib = orig_mesh.GetAttribute(i);
-      for (int itet=0; itet<ntets; ++itet)
+      for (int isub=0; isub<el_factor; ++isub)
       {
-         Element *e = NewElement(Geometry::TETRAHEDRON);
+         Element *e = NewElement(simplex[dim]);
          e->SetAttribute(attrib);
          int *v2 = e->GetVertices();
-         for (int iv=0; iv<nv_tet; ++iv)
+         for (int iv=0; iv<e->GetNVertices(); ++iv)
          {
-            v2[iv] = v[tetmap[itet + iv*ntets]];
+            v2[iv] = v[el_map[isub + iv*el_factor]];
          }
          AddElement(e);
       }
@@ -4375,16 +4401,14 @@ void Mesh::MakeNonconformingSimplicial_(Mesh &orig_mesh, TetSplitting split)
    {
       const int *v = orig_mesh.boundary[i]->GetVertices();
       const int attrib = orig_mesh.GetBdrAttribute(i);
-      const Geometry::Type orig_geom = orig_mesh.GetBdrElementBaseGeometry(i);
-      MFEM_ASSERT(orig_geom == Geometry::SQUARE, "");
-      for (int itri=0; itri<ntris; ++itri)
+      for (int isub=0; isub<be_factor; ++isub)
       {
-         Element *be = NewElement(Geometry::TRIANGLE);
+         Element *be = NewElement(simplex[dim-1]);
          be->SetAttribute(attrib);
          int *v2 = be->GetVertices();
-         for (int iv=0; iv<nv_tri; ++iv)
+         for (int iv=0; iv<be->GetNVertices(); ++iv)
          {
-            v2[iv] = v[trimap[itri + iv*ntris]];
+            v2[iv] = v[be_map[isub + iv*be_factor]];
          }
          AddBdrElement(be);
       }

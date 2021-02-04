@@ -242,7 +242,7 @@ public:
        (shared edges and faces are @b not identified). However, it is useful
        for consutrcting low-order preconditioners. */
    static ParMesh MakeNonconformingSimplicial(
-      ParMesh &orig_mesh, TetSplitting split=TetSplitting::SIX);
+      ParMesh &orig_mesh, SimplexSplitting split=SimplexSplitting::ONE_PER_VERTEX);
 
    virtual void Finalize(bool refine = false, bool fix_orientation = false);
 

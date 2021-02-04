@@ -1481,7 +1481,7 @@ ParMesh ParMesh::MakeSimplicial(ParMesh &orig_mesh)
 }
 
 ParMesh ParMesh::MakeNonconformingSimplicial(
-   ParMesh &orig_mesh, TetSplitting split)
+   ParMesh &orig_mesh, SimplexSplitting split)
 {
    ParMesh mesh;
 

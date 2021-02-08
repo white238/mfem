@@ -16,6 +16,30 @@
 
 using namespace std;
 
+/*
+RAJA Teams Policy setup
+*/
+using namespace RAJA::expt;
+using namespace RAJA;
+#if defined(MFEM_USE_RAJA) && defined(RAJA_ENABLE_CUDA)
+using device_launch_policy = LaunchPolicy<seq_launch_t, cuda_launch_t<true>>;
+using team_x = LoopPolicy<loop_exec, cuda_block_x_direct>;
+using thread_z = LoopPolicy<loop_exec, cuda_thread_z_loop>;
+using thread_y = LoopPolicy<loop_exec, cuda_thread_y_loop>;
+using thread_x = LoopPolicy<loop_exec, cuda_thread_x_loop>;
+#elif defined(MFEM_USE_RAJA) && defined(RAJA_ENABLE_HIP)
+using device_launch_policy = LaunchPolicy<seq_launch_t, hip_launch_t<true>>;
+using team_x = LoopPolicy<loop_exec, hip_block_x_direct>;
+using thread_z = LoopPolicy<loop_exec, hip_thread_z_loop>;
+using thread_y = LoopPolicy<loop_exec, hip_thread_y_loop>;
+using thread_x = LoopPolicy<loop_exec, hip_thread_x_loop>;
+#else
+using device_launch_policy = LaunchPolicy<seq_launch_t>;
+using team_x = LoopPolicy<loop_exec>;
+using thread_y = LoopPolicy<loop_exec>;
+using thread_x = LoopPolicy<loop_exec>;
+#endif
+
 namespace mfem
 {
 
@@ -777,6 +801,165 @@ static void SmemPAMassApply2D(const int NE,
    });
 }
 
+template<int T_D1D = 0, int T_Q1D = 0, int T_NBZ = 0>
+static void RAJASmemPAMassApply2D(const int NE,
+                              const Array<double> &b_,
+                              const Array<double> &bt_,
+                              const Vector &d_,
+                              const Vector &x_,
+                              Vector &y_,
+                              const int d1d = 0,
+                              const int q1d = 0)
+{
+   MFEM_CONTRACT_VAR(bt_);
+   const int D1D = T_D1D ? T_D1D : d1d;
+   const int Q1D = T_Q1D ? T_Q1D : q1d;
+   constexpr int NBZ = T_NBZ ? T_NBZ : 1;
+   constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
+   constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+   MFEM_VERIFY(D1D <= MD1, "");
+   MFEM_VERIFY(Q1D <= MQ1, "");
+   auto b = Reshape(b_.Read(), Q1D, D1D);
+   auto D = Reshape(d_.Read(), Q1D, Q1D, NE);
+   auto x = Reshape(x_.Read(), D1D, D1D, NE);
+   auto Y = Reshape(y_.ReadWrite(), D1D, D1D, NE);
+   //MFEM_FORALL_2D(e, NE, Q1D, Q1D, NBZ,
+
+   const int G = (NE+NBZ-1)/NBZ;
+   launch<device_launch_policy>
+   (DEVICE, Resources(Teams(G), Threads(Q1D, Q1D, NBZ)),
+    [=] RAJA_HOST_DEVICE (LaunchContext ctx)
+   {
+
+     loop<team_x> (ctx, RangeSegment(0, NE), [&] (const int bx) {
+
+     loop<thread_z> (ctx, RangeSegment(0, NBZ), [&] (const int tidz) {
+
+      const int e = bx*NBZ + tidz;
+      if (e >= NE) { return; }
+
+      //const int tidz = MFEM_THREAD_ID(z);
+      const int D1D = T_D1D ? T_D1D : d1d;
+      const int Q1D = T_Q1D ? T_Q1D : q1d;
+      constexpr int NBZ = T_NBZ ? T_NBZ : 1;
+      constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
+      constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+      constexpr int MDQ = (MQ1 > MD1) ? MQ1 : MD1;
+      MFEM_SHARED double BBt[MQ1*MD1];
+      double (*B)[MD1] = (double (*)[MD1]) BBt;
+      double (*Bt)[MQ1] = (double (*)[MQ1]) BBt;
+      MFEM_SHARED double sm0[NBZ][MDQ*MDQ];
+      MFEM_SHARED double sm1[NBZ][MDQ*MDQ];
+      double (*X)[MD1] = (double (*)[MD1]) (sm0 + tidz);
+      double (*DQ)[MQ1] = (double (*)[MQ1]) (sm1 + tidz);
+      double (*QQ)[MQ1] = (double (*)[MQ1]) (sm0 + tidz);
+      double (*QD)[MD1] = (double (*)[MD1]) (sm1 + tidz);
+      //MFEM_FOREACH_THREAD(dy,y,D1D)
+      loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+        loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            X[dy][dx] = x(dx,dy,e);
+         });
+      });
+      if (tidz == 0)
+      {
+        //MFEM_FOREACH_THREAD(dy,y,D1D)
+        loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+         {
+           //MFEM_FOREACH_THREAD(q,x,Q1D)
+            loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int q)
+            {
+               B[q][dy] = b(q,dy);
+            });
+         });
+      }
+      //MFEM_SYNC_THREAD;
+      ctx.teamSync();
+      //MFEM_FOREACH_THREAD(dy,y,D1D)
+      loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(qx,x,Q1D)
+        loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int qx)
+         {
+            double dq = 0.0;
+            for (int dx = 0; dx < D1D; ++dx)
+            {
+               dq += X[dy][dx] * B[qx][dx];
+            }
+            DQ[dy][qx] = dq;
+         });
+      });
+      //MFEM_SYNC_THREAD;
+      ctx.teamSync();
+      //MFEM_FOREACH_THREAD(qy,y,Q1D)
+      loop<thread_y>(ctx, RangeSegment(0,Q1D), [&] (int qy)
+      {
+        //MFEM_FOREACH_THREAD(qx,x,Q1D)
+         loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int qx)
+         {
+            double qq = 0.0;
+            for (int dy = 0; dy < D1D; ++dy)
+            {
+               qq += DQ[dy][qx] * B[qy][dy];
+            }
+            QQ[qy][qx] = qq * D(qx, qy, e);
+         });
+      });
+      //MFEM_SYNC_THREAD;
+      ctx.teamSync();
+      if (tidz == 0)
+      {
+        //MFEM_FOREACH_THREAD(dy,y,D1D)
+        loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+         {
+           //MFEM_FOREACH_THREAD(q,x,Q1D)
+           loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int q)
+            {
+               Bt[dy][q] = b(q,dy);
+            });
+         });
+      }
+      //MFEM_SYNC_THREAD;
+      ctx.teamSync();
+      //MFEM_FOREACH_THREAD(qy,y,Q1D)
+      loop<thread_y>(ctx, RangeSegment(0,Q1D), [&] (int qy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+        loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            double dq = 0.0;
+            for (int qx = 0; qx < Q1D; ++qx)
+            {
+               dq += QQ[qy][qx] * Bt[dx][qx];
+            }
+            QD[qy][dx] = dq;
+         });
+      });
+      //MFEM_SYNC_THREAD;
+      ctx.teamSync();
+      //MFEM_FOREACH_THREAD(dy,y,D1D)
+      loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+        loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            double dd = 0.0;
+            for (int qy = 0; qy < Q1D; ++qy)
+            {
+               dd += (QD[qy][dx] * Bt[dy][qy]);
+            }
+            Y(dx, dy, e) += dd;
+         });
+        });
+
+       });
+     });
+
+   });
+}
+
 template<int T_D1D = 0, int T_Q1D = 0>
 static void PAMassApply3D(const int NE,
                           const Array<double> &b_,
@@ -1145,6 +1328,271 @@ static void SmemPAMassApply3D(const int NE,
    });
 }
 
+template<int T_D1D = 0, int T_Q1D = 0>
+static void RAJASmemPAMassApply3D(const int NE,
+                              const Array<double> &b_,
+                              const Array<double> &bt_,
+                              const Vector &d_,
+                              const Vector &x_,
+                              Vector &y_,
+                              const int d1d = 0,
+                              const int q1d = 0)
+{
+   MFEM_CONTRACT_VAR(bt_);
+   const int D1D = T_D1D ? T_D1D : d1d;
+   const int Q1D = T_Q1D ? T_Q1D : q1d;
+   constexpr int M1Q = T_Q1D ? T_Q1D : MAX_Q1D;
+   constexpr int M1D = T_D1D ? T_D1D : MAX_D1D;
+   MFEM_VERIFY(D1D <= M1D, "");
+   MFEM_VERIFY(Q1D <= M1Q, "");
+   auto b = Reshape(b_.Read(), Q1D, D1D);
+   auto d = Reshape(d_.Read(), Q1D, Q1D, Q1D, NE);
+   auto x = Reshape(x_.Read(), D1D, D1D, D1D, NE);
+   auto y = Reshape(y_.ReadWrite(), D1D, D1D, D1D, NE);
+
+   using RAJA::RangeSegment;
+
+   //MFEM_FORALL_3D(e, NE, Q1D, Q1D, 1,
+   //{
+   launch<device_launch_policy>
+     (DEVICE, Resources(Teams(NE), Threads(Q1D, Q1D, 1)),
+    [=] RAJA_HOST_DEVICE (LaunchContext ctx)
+   {
+
+     loop<team_x>(ctx, RangeSegment(0, NE), [&] (int e) {
+
+      const int D1D = T_D1D ? T_D1D : d1d;
+      const int Q1D = T_Q1D ? T_Q1D : q1d;
+      constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
+      constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+      constexpr int MDQ = (MQ1 > MD1) ? MQ1 : MD1;
+      MFEM_SHARED double sDQ[MQ1*MD1];
+      double (*B)[MD1] = (double (*)[MD1]) sDQ;
+      double (*Bt)[MQ1] = (double (*)[MQ1]) sDQ;
+      MFEM_SHARED double sm0[MDQ*MDQ*MDQ];
+      MFEM_SHARED double sm1[MDQ*MDQ*MDQ];
+      double (*X)[MD1][MD1]   = (double (*)[MD1][MD1]) sm0;
+      double (*DDQ)[MD1][MQ1] = (double (*)[MD1][MQ1]) sm1;
+      double (*DQQ)[MQ1][MQ1] = (double (*)[MQ1][MQ1]) sm0;
+      double (*QQQ)[MQ1][MQ1] = (double (*)[MQ1][MQ1]) sm1;
+      double (*QQD)[MQ1][MD1] = (double (*)[MQ1][MD1]) sm0;
+      double (*QDD)[MD1][MD1] = (double (*)[MD1][MD1]) sm1;
+
+      //MFEM_FOREACH_THREAD(dy,y,D1D)
+      loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+        loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               X[dz][dy][dx] = x(dx,dy,dz,e);
+            }
+         });
+        //MFEM_FOREACH_THREAD(dx,x,Q1D)
+        loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int dx)
+         {
+            B[dx][dy] = b(dx,dy);
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     //MFEM_FOREACH_THREAD(dy,y,D1D)
+     loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(qx,x,Q1D)
+        loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int qx)
+         {
+            double u[D1D];
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; dz++)
+            {
+               u[dz] = 0;
+            }
+            MFEM_UNROLL(MD1)
+            for (int dx = 0; dx < D1D; ++dx)
+            {
+               MFEM_UNROLL(MD1)
+               for (int dz = 0; dz < D1D; ++dz)
+               {
+                  u[dz] += X[dz][dy][dx] * B[qx][dx];
+               }
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               DDQ[dz][dy][qx] = u[dz];
+            }
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     //MFEM_FOREACH_THREAD(qy,y,Q1D)
+     loop<thread_y>(ctx, RangeSegment(0,Q1D), [&] (int qy)
+      {
+        //MFEM_FOREACH_THREAD(qx,x,Q1D)
+        loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int qx)
+         {
+            double u[D1D];
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; dz++)
+            {
+               u[dz] = 0;
+            }
+            MFEM_UNROLL(MD1)
+            for (int dy = 0; dy < D1D; ++dy)
+            {
+               MFEM_UNROLL(MD1)
+               for (int dz = 0; dz < D1D; dz++)
+               {
+                  u[dz] += DDQ[dz][dy][qx] * B[qy][dy];
+               }
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; dz++)
+            {
+               DQQ[dz][qy][qx] = u[dz];
+            }
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     ///MFEM_FOREACH_THREAD(qy,y,Q1D)
+     loop<thread_y>(ctx, RangeSegment(0,Q1D), [&] (int qy)
+      {
+        //MFEM_FOREACH_THREAD(qx,x,Q1D)
+        loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int qx)
+         {
+            double u[Q1D];
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; qz++)
+            {
+               u[qz] = 0;
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               MFEM_UNROLL(MQ1)
+               for (int qz = 0; qz < Q1D; qz++)
+               {
+                  u[qz] += DQQ[dz][qy][qx] * B[qz][dz];
+               }
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; qz++)
+            {
+               QQQ[qz][qy][qx] = u[qz] * d(qx,qy,qz,e);
+            }
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     //MFEM_FOREACH_THREAD(d,y,D1D)
+     loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int d)
+      {
+        //MFEM_FOREACH_THREAD(q,x,Q1D)
+        loop<thread_x>(ctx, RangeSegment(0,Q1D), [&] (int q)
+         {
+            Bt[d][q] = b(q,d);
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     //MFEM_FOREACH_THREAD(qy,y,Q1D)
+     loop<thread_y>(ctx, RangeSegment(0,Q1D), [&] (int qy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+        loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            double u[Q1D];
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               u[qz] = 0;
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qx = 0; qx < Q1D; ++qx)
+            {
+               MFEM_UNROLL(MQ1)
+               for (int qz = 0; qz < Q1D; ++qz)
+               {
+                  u[qz] += QQQ[qz][qy][qx] * Bt[dx][qx];
+               }
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               QQD[qz][qy][dx] = u[qz];
+            }
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     //MFEM_FOREACH_THREAD(dy,y,D1D)
+     loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+         loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            double u[Q1D];
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               u[qz] = 0;
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qy = 0; qy < Q1D; ++qy)
+            {
+               MFEM_UNROLL(MQ1)
+               for (int qz = 0; qz < Q1D; ++qz)
+               {
+                  u[qz] += QQD[qz][qy][dx] * Bt[dy][qy];
+               }
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               QDD[qz][dy][dx] = u[qz];
+            }
+         });
+      });
+     //MFEM_SYNC_THREAD;
+     ctx.teamSync();
+     //MFEM_FOREACH_THREAD(dy,y,D1D)
+     loop<thread_y>(ctx, RangeSegment(0,D1D), [&] (int dy)
+      {
+        //MFEM_FOREACH_THREAD(dx,x,D1D)
+        loop<thread_x>(ctx, RangeSegment(0,D1D), [&] (int dx)
+         {
+            double u[D1D];
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               u[dz] = 0;
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               MFEM_UNROLL(MD1)
+               for (int dz = 0; dz < D1D; ++dz)
+               {
+                  u[dz] += QDD[qz][dy][dx] * Bt[dz][qz];
+               }
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               y(dx,dy,dz,e) += u[dz];
+            }
+         });
+      });
+
+   });
+
+   });
+}
+
 static void PAMassApply(const int dim,
                         const int D1D,
                         const int Q1D,
@@ -1170,7 +1618,29 @@ static void PAMassApply(const int dim,
    }
 #endif // MFEM_USE_OCCA
    const int id = (D1D << 4) | Q1D;
-   if (dim == 2)
+   if (dim == 2 &&
+       (Device::Allows(Backend::RAJA_CUDA) ||
+        Device::Allows(Backend::RAJA_HIP) ) )
+   {
+      switch (id)
+      {
+         case 0x22: return RAJASmemPAMassApply2D<2,2,16>(NE,B,Bt,D,X,Y);
+         case 0x24: return RAJASmemPAMassApply2D<2,4,16>(NE,B,Bt,D,X,Y);
+         case 0x33: return RAJASmemPAMassApply2D<3,3,16>(NE,B,Bt,D,X,Y);
+         case 0x34: return RAJASmemPAMassApply2D<3,4,16>(NE,B,Bt,D,X,Y);
+         case 0x36: return RAJASmemPAMassApply2D<3,6,16>(NE,B,Bt,D,X,Y);
+         case 0x44: return RAJASmemPAMassApply2D<4,4,8>(NE,B,Bt,D,X,Y);
+         case 0x48: return RAJASmemPAMassApply2D<4,8,4>(NE,B,Bt,D,X,Y);
+         case 0x55: return RAJASmemPAMassApply2D<5,5,8>(NE,B,Bt,D,X,Y);
+         case 0x58: return RAJASmemPAMassApply2D<5,8,2>(NE,B,Bt,D,X,Y);
+         case 0x66: return RAJASmemPAMassApply2D<6,6,4>(NE,B,Bt,D,X,Y);
+         case 0x77: return RAJASmemPAMassApply2D<7,7,4>(NE,B,Bt,D,X,Y);
+         case 0x88: return RAJASmemPAMassApply2D<8,8,2>(NE,B,Bt,D,X,Y);
+         case 0x99: return RAJASmemPAMassApply2D<9,9,2>(NE,B,Bt,D,X,Y);
+        default:   return mfem_error("Order not supported with RAJA-CUDA");
+      }
+   }
+   else if (dim == 2)
    {
       switch (id)
       {
@@ -1188,6 +1658,28 @@ static void PAMassApply(const int dim,
          case 0x88: return SmemPAMassApply2D<8,8,2>(NE,B,Bt,D,X,Y);
          case 0x99: return SmemPAMassApply2D<9,9,2>(NE,B,Bt,D,X,Y);
          default:   return PAMassApply2D(NE,B,Bt,D,X,Y,D1D,Q1D);
+      }
+   }
+   else if (dim == 3 &&
+            (Device::Allows(Backend::RAJA_CUDA) ||
+             Device::Allows(Backend::RAJA_HIP) ) )
+   {
+      switch (id)
+      {
+         case 0x23: return RAJASmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
+         case 0x24: return RAJASmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
+         case 0x34: return RAJASmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
+         case 0x36: return RAJASmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
+         case 0x45: return RAJASmemPAMassApply3D<4,5>(NE,B,Bt,D,X,Y);
+         case 0x46: return RAJASmemPAMassApply3D<4,6>(NE,B,Bt,D,X,Y);
+         case 0x48: return RAJASmemPAMassApply3D<4,8>(NE,B,Bt,D,X,Y);
+         case 0x56: return RAJASmemPAMassApply3D<5,6>(NE,B,Bt,D,X,Y);
+         case 0x58: return RAJASmemPAMassApply3D<5,8>(NE,B,Bt,D,X,Y);
+         case 0x67: return RAJASmemPAMassApply3D<6,7>(NE,B,Bt,D,X,Y);
+         case 0x78: return RAJASmemPAMassApply3D<7,8>(NE,B,Bt,D,X,Y);
+         case 0x89: return RAJASmemPAMassApply3D<8,9>(NE,B,Bt,D,X,Y);
+         case 0x9A: return RAJASmemPAMassApply3D<9,10>(NE,B,Bt,D,X,Y);
+         default:   return mfem_error("Order not supported with RAJA-CUDA");
       }
    }
    else if (dim == 3)

@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2020, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -187,6 +187,9 @@ protected:
    MemAlloc <Tetrahedron, 1024> TetMemory;
 #endif
 
+   // used during NC mesh initialization only
+   Array<Triple<int, int, int> > tmp_vertex_parents;
+
 public:
    typedef Geometry::Constants<Geometry::SEGMENT>     seg_t;
    typedef Geometry::Constants<Geometry::TRIANGLE>    tri_t;
@@ -207,9 +210,6 @@ public:
    Array<GeometricFactors*> geom_factors; ///< Optional geometric factors.
    Array<FaceGeometricFactors*>
    face_geom_factors; ///< Optional face geometric factors.
-
-   /// Used during initialization only.
-   Array<Triple<int, int, int> > tmp_vertex_parents;
 
    // Global parameter that can be used to control the removal of unused
    // vertices performed when reading a mesh in MFEM format. The default value
@@ -236,7 +236,7 @@ protected:
 
    // Readers for different mesh formats, used in the Load() method.
    // The implementations of these methods are in mesh_readers.cpp.
-   void ReadMFEMMesh(std::istream &input, bool mfem_v11, int &curved);
+   void ReadMFEMMesh(std::istream &input, int version, int &curved);
    void ReadLineMesh(std::istream &input);
    void ReadNetgen2DMesh(std::istream &input, int &curved);
    void ReadNetgen3DMesh(std::istream &input);
@@ -318,6 +318,9 @@ protected:
 
    /// Update the nodes of a curved mesh after refinement
    void UpdateNodes();
+
+   /// Helper to set vertex coordinates given a high-order curvature function.
+   void SetVerticesFromNodes(const GridFunction *nodes);
 
    void UniformRefinement2D_base(bool update_nodes = true);
 
@@ -466,6 +469,9 @@ protected:
    /// Creates a 1D mesh for the interval [0,sx] divided into n equal intervals.
    void Make1D(int n, double sx = 1.0);
 
+   /// Internal function used in Mesh::MakeRefined
+   void MakeRefined_(Mesh &orig_mesh, int ref_factor, int ref_type);
+
    /// Initialize vertices/elements/boundary/tables from a nonconforming mesh.
    void InitFromNCMesh(const NCMesh &ncmesh);
 
@@ -483,7 +489,7 @@ protected:
    double GetElementSize(ElementTransformation *T, int type = 0);
 
    // Internal helper used in MakeSimplicial (and ParMesh::MakeSimplicial).
-   void MakeSimplicial_(Mesh &orig_mesh, int *vglobal);
+   void MakeSimplicial_(const Mesh &orig_mesh, int *vglobal);
 
    void MakeNonconformingSimplicial_(Mesh &orig_mesh, SimplexSplitting split);
 
@@ -500,7 +506,24 @@ public:
    /// Move constructor, useful for using a Mesh as a function return value.
    Mesh(Mesh &&mesh);
 
-   // Named constructors, each of the below uses the move constructor
+   /// Move assignment operstor.
+   Mesh& operator=(Mesh &&mesh);
+
+   /// Explicitly delete the copy assignment operator.
+   Mesh& operator=(Mesh &mesh) = delete;
+
+   /** @name Named mesh constructors.
+
+       Each of these constructors uses the move constructor, and can be used as
+       the right-hand side of an assignment when creating new meshes. */
+   ///@{
+
+   /** Creates mesh by reading a file in MFEM, Netgen, or VTK format. If
+       generate_edges = 0 (default) edges are not generated, if 1 edges are
+       generated. */
+   static Mesh LoadFromFile(const char *filename,
+                            int generate_edges = 0, int refine = 1,
+                            bool fix_orientation = true);
 
    /** Creates 1D mesh , divided into n equal intervals. */
    static Mesh MakeCartesian1D(int n, double sx = 1.0);
@@ -517,15 +540,13 @@ public:
    /** Creates mesh for the parallelepiped [0,sx]x[0,sy]x[0,sz], divided into
        nx*ny*nz hexahedra if type=HEXAHEDRON or into 6*nx*ny*nz tetrahedrons if
        type=TETRAHEDRON. If sfc_ordering = true (default), elements are ordered
-       along a space-filling curve, instead of row by row and layer by layer.
-       The parameter @a generate_edges is ignored (for now, it is kept for
-       backward compatibility). */
+       along a space-filling curve, instead of row by row and layer by layer. */
    static Mesh MakeCartesian3D(
-      int nx, int ny, int nz, Element::Type type, bool generate_edges = false,
+      int nx, int ny, int nz, Element::Type type,
       double sx = 1.0, double sy = 1.0, double sz = 1.0,
       bool sfc_ordering = true);
 
-   /// Create a uniformly refined (by any factor) version of @a orig_mesh.
+   /// Create a refined (by any factor) version of @a orig_mesh.
    /** @param[in] orig_mesh  The starting coarse mesh.
        @param[in] ref_factor The refinement factor, an integer > 1.
        @param[in] ref_type   Specify the positions of the new vertices. The
@@ -540,9 +561,13 @@ public:
 
    /** Create a mesh by splitting each element of @a orig_mesh into simplices.
        Quadrilaterals are split into two triangles, prisms are split into
-       3 tetrahedra, and hexahedra are split into either 5 or 6 hexahedra
-       depending on the configuration. */
-   static Mesh MakeSimplicial(Mesh &orig_mesh);
+       3 tetrahedra, and hexahedra are split into either 5 or 6 tetrahedra
+       depending on the configuration.
+       @warning The curvature of the original mesh is not carried over to the
+       new mesh. Periodic meshes are not supported. */
+   static Mesh MakeSimplicial(const Mesh &orig_mesh);
+
+   ///@}
 
    /** Create a mesh by splitting each element of @a orig_mesh into simplices.
        Hexes are split into six or eight tets, according to @a split. The
@@ -713,7 +738,8 @@ public:
        reorders vertices, edges and faces along with the elements. */
    void ReorderElements(const Array<int> &ordering, bool reorder_vertices = true);
 
-   /// See @a MakeCartesian3D.
+   /// Deprecated: see @a MakeCartesian3D.
+   MFEM_DEPRECATED
    Mesh(int nx, int ny, int nz, Element::Type type, bool generate_edges = false,
         double sx = 1.0, double sy = 1.0, double sz = 1.0,
         bool sfc_ordering = true)
@@ -722,7 +748,8 @@ public:
       Finalize(true); // refine = true
    }
 
-   /// See @a MakeCartesian2D.
+   /// Deprecated: see @a MakeCartesian2D.
+   MFEM_DEPRECATED
    Mesh(int nx, int ny, Element::Type type, bool generate_edges = false,
         double sx = 1.0, double sy = 1.0, bool sfc_ordering = true)
    {
@@ -730,7 +757,8 @@ public:
       Finalize(true); // refine = true
    }
 
-   /// See @a MakeCartesian1D.
+   /// Deprecated: see @a MakeCartesian1D.
+   MFEM_DEPRECATED
    explicit Mesh(int n, double sx = 1.0)
    {
       Make1D(n, sx);
@@ -739,7 +767,7 @@ public:
 
    /** Creates mesh by reading a file in MFEM, Netgen, or VTK format. If
        generate_edges = 0 (default) edges are not generated, if 1 edges are
-       generated. */
+       generated. See also @a Mesh::LoadFromFile. */
    explicit Mesh(const char *filename, int generate_edges = 0, int refine = 1,
                  bool fix_orientation = true);
 
@@ -752,7 +780,8 @@ public:
    /// Create a disjoint mesh from the given mesh array
    Mesh(Mesh *mesh_array[], int num_pieces);
 
-   /// See @a MakeRefined.
+   /// Deprecated: see @a MakeRefined.
+   MFEM_DEPRECATED
    Mesh(Mesh *orig_mesh, int ref_factor, int ref_type);
 
    /** This is similar to the mesh constructor with the same arguments, but here
@@ -1185,9 +1214,6 @@ public:
        by a vector finite element grid function (even if it is a low-order mesh
        with straight edges). */
    void EnsureNodes();
-
-   /** Updates the coordinates of the vertices from the node locations. */
-   void SetVerticesFromNodes();
 
    /** Set the curvature of the mesh nodes using the given polynomial degree,
        'order', and optionally: discontinuous or continuous FE space, 'discont',

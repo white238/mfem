@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2020, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -40,7 +40,7 @@ TEST_CASE("1D Bilinear Mass Integrators",
    double cg_rtol = 1e-14;
    double tol = 1e-9;
 
-   Mesh mesh(n, 2.0);
+   Mesh mesh = Mesh::MakeCartesian1D(n, 2.0);
 
    FunctionCoefficient f1_coef(f1);
    FunctionCoefficient v1_coef(v1);
@@ -260,7 +260,7 @@ TEST_CASE("1D Bilinear Derivative Integrator",
    double cg_rtol = 1e-14;
    double tol = 1e-9;
 
-   Mesh mesh(n, 2.0);
+   Mesh mesh = Mesh::MakeCartesian1D(n, 2.0);
 
    FunctionCoefficient f1_coef(f1);
    FunctionCoefficient df1_coef(df1);
@@ -364,7 +364,7 @@ TEST_CASE("1D Bilinear Weak Derivative Integrator",
    double cg_rtol = 1e-14;
    double tol = 1e-9;
 
-   Mesh mesh(n, 2.0);
+   Mesh mesh = Mesh::MakeCartesian1D(n, 2.0);
 
    FunctionCoefficient f1_coef(f1);
    FunctionCoefficient v1_coef(v1);
@@ -530,7 +530,7 @@ TEST_CASE("1D Bilinear Diffusion Integrator",
    double cg_rtol = 1e-14;
    double tol = 1e-9;
 
-   Mesh mesh(n, 2.0);
+   Mesh mesh = Mesh::MakeCartesian1D(n, 2.0);
 
    H1_FECollection    fec_h1(order, dim);
    FiniteElementSpace fespace_h1(&mesh, &fec_h1);

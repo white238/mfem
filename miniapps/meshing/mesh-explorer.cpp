@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2020, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -404,9 +404,7 @@ int main (int argc, char *argv[])
                if (ref_factor <= 1 || ref_factor > 32) { break; }
                int ref_type = (sk == 'u') ? BasisType::ClosedUniform :
                               BasisType::GaussLobatto;
-               Mesh *rmesh = new Mesh(mesh, ref_factor, ref_type);
-               delete mesh;
-               mesh = rmesh;
+               *mesh = Mesh::MakeRefined(*mesh, ref_factor, ref_type);
                break;
             }
             case 'l':

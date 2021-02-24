@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2020, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -113,7 +113,8 @@ void NavierSolver::Setup(double dt)
 
    sw_setup.Start();
 
-   pmesh_lor = new ParMesh(pmesh, order, BasisType::GaussLobatto);
+   pmesh_lor = new ParMesh(
+      ParMesh::MakeRefined(*pmesh, order, BasisType::GaussLobatto));
    pfec_lor = new H1_FECollection(1);
    pfes_lor = new ParFiniteElementSpace(pmesh_lor, pfec_lor);
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2020, Lawrence Livermore National Security, LLC. Produced
+// Copyright (c) 2010-2021, Lawrence Livermore National Security, LLC. Produced
 // at the Lawrence Livermore National Laboratory. All Rights reserved. See files
 // LICENSE and NOTICE for details. LLNL-CODE-806117.
 //
@@ -92,35 +92,15 @@ ParMesh::ParMesh(const ParMesh &pmesh, bool copy_nodes)
    }
 }
 
-ParMesh::ParMesh(ParMesh &&mesh)
-   : Mesh(mesh),
-     gtopo(mesh.gtopo)
+ParMesh::ParMesh(ParMesh &&mesh) : ParMesh()
 {
-   MyComm = mesh.MyComm;
-   NRanks = mesh.NRanks;
-   MyRank = mesh.MyRank;
+   Swap(mesh);
+}
 
-   glob_elem_offset = mesh.glob_elem_offset;
-   glob_offset_sequence = mesh.glob_offset_sequence;
-
-   group_svert.Swap(mesh.group_svert);
-   group_sedge.Swap(mesh.group_sedge);
-   group_stria.Swap(mesh.group_stria);
-   group_squad.Swap(mesh.group_squad);
-
-   mfem::Swap(shared_edges, mesh.shared_edges);
-   mfem::Swap(shared_trias, mesh.shared_trias);
-   mfem::Swap(shared_quads, mesh.shared_quads);
-   mfem::Swap(svert_lvert, mesh.svert_lvert);
-   mfem::Swap(sedge_ledge, mesh.sedge_ledge);
-   mfem::Swap(sface_lface, mesh.sface_lface);
-
-   // Do not move face-neighbor data (can be generated if needed)
-   have_face_nbr_data = false;
-
-   // Nodes, NCMesh, and NURBSExtension were taken care of by the Mesh move ctor
-   pncmesh = mesh.pncmesh;
-   mesh.pncmesh = NULL;
+ParMesh& ParMesh::operator=(ParMesh &&mesh)
+{
+   Swap(mesh);
+   return *this;
 }
 
 ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
@@ -302,6 +282,10 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
             element_counter++;
          }
       }
+
+      // set meaningful values to 'vertices' even though we have Nodes,
+      // for compatibility (e.g., Mesh::GetVertex())
+      SetVerticesFromNodes(Nodes);
    }
 
    if (partitioning != partitioning_)
@@ -945,18 +929,50 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
    have_face_nbr_data = false;
    pncmesh = NULL;
 
-   string ident;
-
-   // read the serial part of the mesh
    const int gen_edges = 1;
+
+   Load(input, gen_edges, refine, true);
+}
+
+void ParMesh::Load(istream &input, int generate_edges, int refine,
+                   bool fix_orientation)
+{
+   ParMesh::Destroy();
 
    // Tell Loader() to read up to 'mfem_serial_mesh_end' instead of
    // 'mfem_mesh_end', as we have additional parallel mesh data to load in from
    // the stream.
-   Loader(input, gen_edges, "mfem_serial_mesh_end");
+   Loader(input, generate_edges, "mfem_serial_mesh_end");
 
    ReduceMeshGen(); // determine the global 'meshgen'
 
+   if (Conforming())
+   {
+      LoadSharedEntities(input);
+   }
+   else
+   {
+      // the ParNCMesh instance was already constructed in 'Loader'
+      pncmesh = dynamic_cast<ParNCMesh*>(ncmesh);
+      MFEM_ASSERT(pncmesh, "internal error");
+
+      // in the NC case we don't need to load extra data from the file,
+      // as the shared entities can be constructed from the ghost layer
+      pncmesh->GetConformingSharedStructures(*this);
+   }
+
+   Finalize(refine, fix_orientation);
+
+   EnsureParNodes();
+
+   // note: attributes and bdr_attributes are local lists
+
+   // TODO: NURBS meshes?
+}
+
+void ParMesh::LoadSharedEntities(istream &input)
+{
+   string ident;
    skip_comment_lines(input, '#');
 
    // read the group topology
@@ -970,7 +986,8 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
    // read and set the sizes of svert_lvert, group_svert
    {
       int num_sverts;
-      input >> ident >> num_sverts; // total_shared_vertices
+      input >> ident >> num_sverts;
+      MFEM_VERIFY(ident == "total_shared_vertices", "invalid mesh file");
       svert_lvert.SetSize(num_sverts);
       group_svert.SetDims(GetNGroups()-1, num_sverts);
    }
@@ -979,7 +996,8 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
    {
       skip_comment_lines(input, '#');
       int num_sedges;
-      input >> ident >> num_sedges; // total_shared_edges
+      input >> ident >> num_sedges;
+      MFEM_VERIFY(ident == "total_shared_edges", "invalid mesh file");
       sedge_ledge.SetSize(num_sedges);
       shared_edges.SetSize(num_sedges);
       group_sedge.SetDims(GetNGroups()-1, num_sedges);
@@ -993,7 +1011,8 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
    {
       skip_comment_lines(input, '#');
       int num_sface;
-      input >> ident >> num_sface; // total_shared_faces
+      input >> ident >> num_sface;
+      MFEM_VERIFY(ident == "total_shared_faces", "invalid mesh file");
       sface_lface.SetSize(num_sface);
       group_stria.MakeI(GetNGroups()-1);
       group_squad.MakeI(GetNGroups()-1);
@@ -1021,10 +1040,10 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
          mfem_error();
       }
 #endif
-
       {
          int nv;
          input >> ident >> nv; // shared_vertices (in this group)
+         MFEM_VERIFY(ident == "shared_vertices", "invalid mesh file");
          nv += svert_counter;
          MFEM_VERIFY(nv <= group_svert.Size_of_connections(),
                      "incorrect number of total_shared_vertices");
@@ -1039,6 +1058,7 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
       {
          int ne, v[2];
          input >> ident >> ne; // shared_edges (in this group)
+         MFEM_VERIFY(ident == "shared_edges", "invalid mesh file");
          ne += sedge_counter;
          MFEM_VERIFY(ne <= group_sedge.Size_of_connections(),
                      "incorrect number of total_shared_edges");
@@ -1097,37 +1117,35 @@ ParMesh::ParMesh(MPI_Comm comm, istream &input, bool refine)
          group_squad.GetJ()[i] = i;
       }
    }
-
-   const bool fix_orientation = false;
-   Finalize(refine, fix_orientation);
-
-   // If the mesh has Nodes, convert them from GridFunction to ParGridFunction?
-
-   // note: attributes and bdr_attributes are local lists
-
-   // TODO: AMR meshes, NURBS meshes?
 }
 
 ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
-   : Mesh(orig_mesh, ref_factor, ref_type),
-     MyComm(orig_mesh->GetComm()),
-     NRanks(orig_mesh->GetNRanks()),
-     MyRank(orig_mesh->GetMyRank()),
-     glob_elem_offset(-1),
-     glob_offset_sequence(-1),
-     gtopo(orig_mesh->gtopo),
-     have_face_nbr_data(false),
-     pncmesh(NULL)
 {
+   MakeRefined_(*orig_mesh, ref_factor, ref_type);
+}
+
+void ParMesh::MakeRefined_(ParMesh &orig_mesh, int ref_factor, int ref_type)
+{
+   MyComm = orig_mesh.GetComm();
+   NRanks = orig_mesh.GetNRanks();
+   MyRank = orig_mesh.GetMyRank();
+   glob_elem_offset = -1;
+   glob_offset_sequence = -1;
+   gtopo = orig_mesh.gtopo;
+   have_face_nbr_data = false;
+   pncmesh = NULL;
+
+   Mesh::MakeRefined_(orig_mesh, ref_factor, ref_type);
+
    // Need to initialize:
    // - shared_edges, shared_{trias,quads}
    // - group_svert, group_sedge, group_{stria,squad}
    // - svert_lvert, sedge_ledge, sface_lface
 
-   meshgen = orig_mesh->meshgen; // copy the global 'meshgen'
+   meshgen = orig_mesh.meshgen; // copy the global 'meshgen'
 
    H1_FECollection rfec(ref_factor, Dim, ref_type);
-   ParFiniteElementSpace rfes(orig_mesh, &rfec);
+   ParFiniteElementSpace rfes(&orig_mesh, &rfec);
 
    // count the number of entries in each row of group_s{vert,edge,face}
    group_svert.MakeI(GetNGroups()-1); // exclude the local group 0
@@ -1137,13 +1155,13 @@ ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
    for (int gr = 1; gr < GetNGroups(); gr++)
    {
       // orig vertex -> vertex
-      group_svert.AddColumnsInRow(gr-1, orig_mesh->GroupNVertices(gr));
+      group_svert.AddColumnsInRow(gr-1, orig_mesh.GroupNVertices(gr));
       // orig edge -> (ref_factor-1) vertices and (ref_factor) edges
-      const int orig_ne = orig_mesh->GroupNEdges(gr);
+      const int orig_ne = orig_mesh.GroupNEdges(gr);
       group_svert.AddColumnsInRow(gr-1, (ref_factor-1)*orig_ne);
       group_sedge.AddColumnsInRow(gr-1, ref_factor*orig_ne);
       // orig face -> (?) vertices, (?) edges, and (?) faces
-      const int orig_nt = orig_mesh->GroupNTriangles(gr);
+      const int orig_nt = orig_mesh.GroupNTriangles(gr);
       if (orig_nt > 0)
       {
          const Geometry::Type geom = Geometry::TRIANGLE;
@@ -1159,7 +1177,7 @@ ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
          // count refined faces
          group_stria.AddColumnsInRow(gr-1, orig_nt*(RG.RefGeoms.Size()/nvert));
       }
-      const int orig_nq = orig_mesh->GroupNQuadrilaterals(gr);
+      const int orig_nq = orig_mesh.GroupNQuadrilaterals(gr);
       if (orig_nq > 0)
       {
          const Geometry::Type geom = Geometry::SQUARE;
@@ -1194,15 +1212,15 @@ ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
    for (int gr = 1; gr < GetNGroups(); gr++)
    {
       // add shared vertices from original shared vertices
-      const int orig_n_verts = orig_mesh->GroupNVertices(gr);
+      const int orig_n_verts = orig_mesh.GroupNVertices(gr);
       for (int j = 0; j < orig_n_verts; j++)
       {
-         rfes.GetVertexDofs(orig_mesh->GroupVertex(gr, j), rdofs);
+         rfes.GetVertexDofs(orig_mesh.GroupVertex(gr, j), rdofs);
          group_svert.AddConnection(gr-1, svert_lvert.Append(rdofs[0])-1);
       }
 
       // add refined shared edges; add shared vertices from refined shared edges
-      const int orig_n_edges = orig_mesh->GroupNEdges(gr);
+      const int orig_n_edges = orig_mesh.GroupNEdges(gr);
       if (orig_n_edges > 0)
       {
          const Geometry::Type geom = Geometry::SEGMENT;
@@ -1234,7 +1252,7 @@ ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
       }
       // add refined shared faces; add shared edges and shared vertices from
       // refined shared faces
-      const int orig_nt = orig_mesh->GroupNTriangles(gr);
+      const int orig_nt = orig_mesh.GroupNTriangles(gr);
       if (orig_nt > 0)
       {
          const Geometry::Type geom = Geometry::TRIANGLE;
@@ -1278,7 +1296,7 @@ ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
             }
          }
       }
-      const int orig_nq = orig_mesh->GroupNQuadrilaterals(gr);
+      const int orig_nq = orig_mesh.GroupNQuadrilaterals(gr);
       if (orig_nq > 0)
       {
          const Geometry::Type geom = Geometry::SQUARE;
@@ -1336,6 +1354,13 @@ ParMesh::ParMesh(ParMesh *orig_mesh, int ref_factor, int ref_type)
       SetCurvature(1, GetNodalFESpace()->IsDGSpace(), spaceDim,
                    GetNodalFESpace()->GetOrdering());
    }
+}
+
+ParMesh ParMesh::MakeRefined(ParMesh &orig_mesh, int ref_factor, int ref_type)
+{
+   ParMesh mesh;
+   mesh.MakeRefined_(orig_mesh, ref_factor, ref_type);
+   return mesh;
 }
 
 ParMesh ParMesh::MakeSimplicial(ParMesh &orig_mesh)
@@ -1559,19 +1584,19 @@ long ParMesh::GetGlobalElementNum(int local_element_num) const
 void ParMesh::DistributeAttributes(Array<int> &attr)
 {
    // Determine the largest attribute number across all processors
-   int max_attr = attr.Max();
+   int max_attr = attr.Size() ? attr.Max() : 1 /*allow empty ranks*/;
    int glb_max_attr = -1;
    MPI_Allreduce(&max_attr, &glb_max_attr, 1, MPI_INT, MPI_MAX, MyComm);
 
    // Create marker arrays to indicate which attributes are present
    // assuming attribute numbers are in the range [1,glb_max_attr].
-   bool * attr_marker = new bool[glb_max_attr];
-   bool * glb_attr_marker = new bool[glb_max_attr];
-   for (int i=0; i<glb_max_attr; i++)
+   bool *attr_marker = new bool[glb_max_attr];
+   bool *glb_attr_marker = new bool[glb_max_attr];
+   for (int i = 0; i < glb_max_attr; i++)
    {
       attr_marker[i] = false;
    }
-   for (int i=0; i<attr.Size(); i++)
+   for (int i = 0; i < attr.Size(); i++)
    {
       attr_marker[attr[i] - 1] = true;
    }
@@ -1580,22 +1605,16 @@ void ParMesh::DistributeAttributes(Array<int> &attr)
    delete [] attr_marker;
 
    // Translate from the marker array to a unique, sorted list of attributes
-   Array<int> glb_attr;
-   glb_attr.SetSize(glb_max_attr);
-   glb_attr = glb_max_attr;
-   int o = 0;
-   for (int i=0; i<glb_max_attr; i++)
+   attr.SetSize(0);
+   attr.Reserve(glb_max_attr);
+   for (int i = 0; i < glb_max_attr; i++)
    {
       if (glb_attr_marker[i])
       {
-         glb_attr[o++] = i + 1;
+         attr.Append(i + 1);
       }
    }
    delete [] glb_attr_marker;
-
-   glb_attr.Sort();
-   glb_attr.Unique();
-   glb_attr.Copy(attr);
 }
 
 void ParMesh::SetAttributes()
@@ -2000,6 +2019,28 @@ void ParMesh::SetCurvature(int order, bool discont, int space_dim, int ordering)
    GetNodes(*pnodes);
    NewNodes(*pnodes, true);
    Nodes->MakeOwner(nfec);
+}
+
+void ParMesh::EnsureParNodes()
+{
+   if (Nodes && dynamic_cast<ParFiniteElementSpace*>(Nodes->FESpace()) == NULL)
+   {
+      ParFiniteElementSpace *pfes =
+         new ParFiniteElementSpace(*Nodes->FESpace(), *this);
+      ParGridFunction *new_nodes = new ParGridFunction(pfes);
+
+      *new_nodes = *Nodes;
+
+      if (Nodes->OwnFEC())
+      {
+         new_nodes->MakeOwner(Nodes->OwnFEC());
+         Nodes->MakeOwner(NULL); // takes away ownership of 'fec' and 'fes'
+         delete Nodes->FESpace();
+      }
+
+      delete Nodes;
+      Nodes = new_nodes;
+   }
 }
 
 void ParMesh::ExchangeFaceNbrData()
@@ -2607,6 +2648,8 @@ void ParMesh::GetGhostFaceTransformation(
    {
       const FiniteElement* face_el =
          Nodes->FESpace()->GetTraceElement(FETr->Elem1No, face_geom);
+      MFEM_VERIFY(dynamic_cast<const NodalFiniteElement*>(face_el),
+                  "Mesh requires nodal Finite Element.");
 
 #if 0 // TODO: handle the case of non-interpolatory Nodes
       DenseMatrix I;
@@ -3497,8 +3540,8 @@ void ParMesh::NonconformingRefinement(const Array<Refinement> &refinements,
 {
    if (NURBSext)
    {
-      MFEM_ABORT("ParMesh::NonconformingRefinement: NURBS meshes are not "
-                 "supported. Project the NURBS to Nodes first.");
+      MFEM_ABORT("NURBS meshes are not supported. Please project the "
+                 "NURBS to Nodes first with SetCurvature().");
    }
 
    if (!pncmesh)
@@ -3530,7 +3573,7 @@ void ParMesh::NonconformingRefinement(const Array<Refinement> &refinements,
 
    // now swap the meshes, the second mesh will become the old coarse mesh
    // and this mesh will be the new fine mesh
-   Swap(*pmesh2, false);
+   Mesh::Swap(*pmesh2, false);
 
    delete pmesh2; // NOTE: old face neighbors destroyed here
 
@@ -3586,7 +3629,7 @@ bool ParMesh::NonconformingDerefinement(Array<double> &elem_error,
    attributes.Copy(mesh2->attributes);
    bdr_attributes.Copy(mesh2->bdr_attributes);
 
-   Swap(*mesh2, false);
+   Mesh::Swap(*mesh2, false);
    delete mesh2;
 
    pncmesh->GetConformingSharedStructures(*this);
@@ -3620,21 +3663,11 @@ void ParMesh::RebalanceImpl(const Array<int> *partition)
                  " meshes.");
    }
 
-   // Make sure the Nodes use a ParFiniteElementSpace
-   if (Nodes && dynamic_cast<ParFiniteElementSpace*>(Nodes->FESpace()) == NULL)
+   if (Nodes)
    {
-      ParFiniteElementSpace *pfes =
-         new ParFiniteElementSpace(*Nodes->FESpace(), *this);
-      ParGridFunction *new_nodes = new ParGridFunction(pfes);
-      *new_nodes = *Nodes;
-      if (Nodes->OwnFEC())
-      {
-         new_nodes->MakeOwner(Nodes->OwnFEC());
-         Nodes->MakeOwner(NULL); // takes away ownership of 'fec' and 'fes'
-         delete Nodes->FESpace();
-      }
-      delete Nodes;
-      Nodes = new_nodes;
+      // check that Nodes use a parallel FE space, so we can call UpdateNodes()
+      MFEM_VERIFY(dynamic_cast<ParFiniteElementSpace*>(Nodes->FESpace())
+                  != NULL, "internal error");
    }
 
    DeleteFaceNbrData();
@@ -3647,7 +3680,7 @@ void ParMesh::RebalanceImpl(const Array<int> *partition)
    attributes.Copy(pmesh2->attributes);
    bdr_attributes.Copy(pmesh2->bdr_attributes);
 
-   Swap(*pmesh2, false);
+   Mesh::Swap(*pmesh2, false);
    delete pmesh2;
 
    pncmesh->GetConformingSharedStructures(*this);
@@ -5517,10 +5550,17 @@ long ParMesh::ReduceInt(int value) const
 
 void ParMesh::ParPrint(ostream &out) const
 {
-   if (NURBSext || pncmesh)
+   if (NURBSext)
    {
-      // TODO: AMR meshes, NURBS meshes.
-      Print(out);
+      // TODO: NURBS meshes.
+      Print(out); // use the serial MFEM v1.0 format for now
+      return;
+   }
+
+   if (Nonconforming())
+   {
+      // the NC mesh format works both in serial and in parallel
+      Printer(out);
       return;
    }
 
@@ -5794,7 +5834,126 @@ void ParMesh::PrintSharedEntities(const char *fname_prefix) const
    }
 }
 
-ParMesh::~ParMesh()
+void ParMesh::GetGlobalVertexIndices(Array<HYPRE_Int> &gi) const
+{
+   H1_FECollection fec(1, Dim); // Order 1, mesh dimension (not spatial dimension).
+   ParMesh *pm = const_cast<ParMesh *>(this);
+   ParFiniteElementSpace fespace(pm, &fec);
+
+   gi.SetSize(GetNV());
+
+   Array<int> dofs;
+   for (int i=0; i<GetNV(); ++i)
+   {
+      fespace.GetVertexDofs(i, dofs);
+      gi[i] = fespace.GetGlobalTDofNumber(dofs[0]);
+   }
+}
+
+void ParMesh::GetGlobalEdgeIndices(Array<HYPRE_Int> &gi) const
+{
+   if (Dim == 1)
+   {
+      GetGlobalVertexIndices(gi);
+      return;
+   }
+
+   ND_FECollection fec(1, Dim); // Order 1, mesh dimension (not spatial dimension).
+   ParMesh *pm = const_cast<ParMesh *>(this);
+   ParFiniteElementSpace fespace(pm, &fec);
+
+   gi.SetSize(GetNEdges());
+
+   Array<int> dofs;
+   for (int i=0; i<GetNEdges(); ++i)
+   {
+      fespace.GetEdgeDofs(i, dofs);
+      const int ldof = (dofs[0] >= 0) ? dofs[0] : -1 - dofs[0];
+      gi[i] = fespace.GetGlobalTDofNumber(ldof);
+   }
+}
+
+void ParMesh::GetGlobalFaceIndices(Array<HYPRE_Int> &gi) const
+{
+   if (Dim == 2)
+   {
+      GetGlobalEdgeIndices(gi);
+      return;
+   }
+   else if (Dim == 1)
+   {
+      GetGlobalVertexIndices(gi);
+      return;
+   }
+
+   RT_FECollection fec(0, Dim); // Order 0, mesh dimension (not spatial dimension).
+   ParMesh *pm = const_cast<ParMesh *>(this);
+   ParFiniteElementSpace fespace(pm, &fec);
+
+   gi.SetSize(GetNFaces());
+
+   Array<int> dofs;
+   for (int i=0; i<GetNFaces(); ++i)
+   {
+      fespace.GetFaceDofs(i, dofs);
+      const int ldof = (dofs[0] >= 0) ? dofs[0] : -1 - dofs[0];
+      gi[i] = fespace.GetGlobalTDofNumber(ldof);
+   }
+}
+
+void ParMesh::GetGlobalElementIndices(Array<HYPRE_Int> &gi) const
+{
+   ComputeGlobalElementOffset();
+
+   const HYPRE_Int offset = glob_elem_offset;  // Cast from long to HYPRE_Int
+
+   gi.SetSize(GetNE());
+   for (int i=0; i<GetNE(); ++i)
+   {
+      gi[i] = offset + i;
+   }
+}
+
+void ParMesh::Swap(ParMesh &other)
+{
+   Mesh::Swap(other, true);
+
+   mfem::Swap(MyComm, other.MyComm);
+   mfem::Swap(NRanks, other.NRanks);
+   mfem::Swap(MyRank, other.MyRank);
+
+   mfem::Swap(glob_elem_offset, other.glob_elem_offset);
+   mfem::Swap(glob_offset_sequence, other.glob_offset_sequence);
+
+   gtopo.Swap(other.gtopo);
+
+   group_svert.Swap(other.group_svert);
+   group_sedge.Swap(other.group_sedge);
+   group_stria.Swap(other.group_stria);
+   group_squad.Swap(other.group_squad);
+
+   mfem::Swap(shared_edges, other.shared_edges);
+   mfem::Swap(shared_trias, other.shared_trias);
+   mfem::Swap(shared_quads, other.shared_quads);
+   mfem::Swap(svert_lvert, other.svert_lvert);
+   mfem::Swap(sedge_ledge, other.sedge_ledge);
+   mfem::Swap(sface_lface, other.sface_lface);
+
+   // Swap face-neighbor data
+   mfem::Swap(have_face_nbr_data, other.have_face_nbr_data);
+   mfem::Swap(face_nbr_group, other.face_nbr_group);
+   mfem::Swap(face_nbr_elements_offset, other.face_nbr_elements_offset);
+   mfem::Swap(face_nbr_vertices_offset, other.face_nbr_vertices_offset);
+   mfem::Swap(face_nbr_elements, other.face_nbr_elements);
+   mfem::Swap(face_nbr_vertices, other.face_nbr_vertices);
+   mfem::Swap(send_face_nbr_elements, other.send_face_nbr_elements);
+   mfem::Swap(send_face_nbr_vertices, other.send_face_nbr_vertices);
+
+   // Nodes, NCMesh, and NURBSExtension are taken care of by Mesh::Swap
+   mfem::Swap(pncmesh, other.pncmesh);
+}
+
+void ParMesh::Destroy()
 {
    delete pncmesh;
    ncmesh = pncmesh = NULL;
@@ -5805,6 +5964,12 @@ ParMesh::~ParMesh()
    {
       FreeElement(shared_edges[i]);
    }
+   shared_edges.DeleteAll();
+}
+
+ParMesh::~ParMesh()
+{
+   ParMesh::Destroy();
 
    // The Mesh destructor is called automatically
 }

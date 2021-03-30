@@ -12,7 +12,7 @@
 #include "../general/forall.hpp"
 #include "bilininteg.hpp"
 #include "gridfunc.hpp"
-#include "libceed/mass.hpp"
+#include "ceed/mass.hpp"
 
 using namespace std;
 
@@ -58,10 +58,9 @@ void MassIntegrator::AssemblePA(const FiniteElementSpace &fes)
    const IntegrationRule *ir = IntRule ? IntRule : &GetRule(el, el, *T);
    if (DeviceCanUseCeed())
    {
-      delete ceedDataPtr;
-      ceedDataPtr = new CeedData;
-      InitCeedCoeff(Q, *mesh, *ir, ceedDataPtr);
-      return CeedPAMassAssemble(fes, *ir, *ceedDataPtr);
+      delete ceedOp;
+      ceedOp = new ceed::PAMassIntegrator(fes, *ir, Q);
+      return;
    }
    dim = mesh->Dimension();
    ne = fes.GetMesh()->GetNE();
@@ -485,7 +484,7 @@ void MassIntegrator::AssembleDiagonalPA(Vector &diag)
 {
    if (DeviceCanUseCeed())
    {
-      CeedAssembleDiagonal(ceedDataPtr, diag);
+      ceedOp->GetDiagonal(diag);
    }
    else
    {
@@ -1710,7 +1709,7 @@ void MassIntegrator::AddMultPA(const Vector &x, Vector &y) const
 {
    if (DeviceCanUseCeed())
    {
-      CeedAddMult(ceedDataPtr, x, y);
+      ceedOp->AddMult(x, y);
    }
    else
    {

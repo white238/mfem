@@ -527,7 +527,9 @@ private:
    // Shortcut for Alloc<new_align_bytes>::New(size)
    static inline T *NewHOST(std::size_t size)
    {
-      return Alloc<new_align_bytes>::New(size);
+      T * data = Alloc<new_align_bytes>::New(size);
+      memset((void *) data, 0, size*sizeof(T));
+      return data;
    }
 };
 

@@ -546,7 +546,9 @@ public:
       : DeviceMemorySpace(),
         UmpireMemorySpace(name, "DEVICE") {}
    void Alloc(Memory &base) override
-   { base.d_ptr = allocator.allocate(base.bytes); }
+   { base.d_ptr = allocator.allocate(base.bytes); 
+     MFEM_GPU_CHECK(cudaMemset(base.d_ptr, 0, base.bytes));
+   }
    void Dealloc(Memory &base) override { rm.deallocate(base.d_ptr); }
    void *HtoD(void *dst, const void *src, size_t bytes) override
    {

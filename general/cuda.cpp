@@ -43,6 +43,7 @@ void* CuMemAlloc(void** dptr, size_t bytes)
    mfem::out << "done: " << *dptr << std::endl;
 #endif
 #endif
+   MFEM_GPU_CHECK(cudaMemset(dptr, 0, bytes));
    return *dptr;
 }
 

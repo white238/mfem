@@ -57,7 +57,7 @@ void CheckFiniteImpl(const T * data, int size, bool on_dev, bool fatal)
    {
       fprintf(stderr, "mfem::CheckFiniteImpl failed: %d non-finite values\n",
               num_bad);
-      mfem_backtrace();
+      mfem_backtrace(1);
       if (fatal) { exit(1); }
    }
 }

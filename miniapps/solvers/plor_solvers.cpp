@@ -124,7 +124,6 @@ int main(int argc, char *argv[])
    else
    {
       // solv_lor.reset(new LORSolver<HypreAMS>(lor, &fes_lor));
-      // solv_lor.reset(new LOR_AMS(lor.GetAssembledMatrix(), fes_lor, ess_dofs));
       HypreParMatrix &A = lor.GetAssembledMatrix();
       solv_lor.reset(new LORSolver<LOR_AMS>(A, lor, A, fes_lor, ess_dofs));
    }

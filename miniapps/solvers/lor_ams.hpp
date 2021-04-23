@@ -31,6 +31,8 @@ public:
       B_G = RAP(&A, G);
       G_solv = new HypreBoomerAMG(*B_G);
 
+      // H1 and ND spaces are both lowest order: should be simpler way to
+      // construct the interpolation?
       ParDiscreteLinearOperator interp(&h1_vec_fes, &nd_fes);
       interp.AddDomainInterpolator(new IdentityInterpolator);
       interp.Assemble();
@@ -40,7 +42,7 @@ public:
       Pi_solv = new HypreBoomerAMG(*B_Pi);
       Pi_solv->SetSystemsOptions(dim);
 
-      smoother = new HypreSmoother(A);
+      smoother = new HypreSmoother(A, 1); // Best smoother options?
 
       ams = new GeneralAMS(A, *Pi, *G, *Pi_solv, *G_solv, *smoother);
    }

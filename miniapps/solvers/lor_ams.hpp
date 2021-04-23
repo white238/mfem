@@ -9,13 +9,16 @@ namespace mfem
 class LOR_AMS : public Solver
 {
 private:
+   ParFiniteElementSpace &nd_fes;
    GeneralAMS *ams;
    HypreParMatrix *G, *Pi, *B_G, *B_Pi;
    HypreSmoother *smoother;
    HypreBoomerAMG *G_solv, *Pi_solv;
 public:
-   LOR_AMS(HypreParMatrix &A, ParFiniteElementSpace &nd_fes, const Array<int> &ess_dofs)
-   : Solver(A.Height())
+   LOR_AMS(ParFiniteElementSpace &nd_fes_)
+   : Solver(nd_fes_.GetTrueVSize()), nd_fes(nd_fes_) { }
+
+   void Init(HypreParMatrix &A)
    {
       ParMesh &mesh = *nd_fes.GetParMesh();
       int dim = mesh.Dimension();
@@ -52,10 +55,21 @@ public:
       ams->Mult(x, y);
    }
 
-   void SetOperator(const Operator &op) { }
+   void SetOperator(const Operator &op)
+   {
+      const HypreParMatrix *A = dynamic_cast<const HypreParMatrix*>(&op);
+      MFEM_VERIFY(A != NULL, "");
+      Init(const_cast<HypreParMatrix&>(*A));
+   }
 
    ~LOR_AMS()
    {
+      delete G;
+      delete B_G;
+      delete G_solv;
+      delete Pi;
+      delete B_Pi;
+      delete Pi_solv;
       delete ams;
    }
 };

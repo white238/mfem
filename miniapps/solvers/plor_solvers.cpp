@@ -124,8 +124,7 @@ int main(int argc, char *argv[])
    else
    {
       // solv_lor.reset(new LORSolver<HypreAMS>(lor, &fes_lor));
-      HypreParMatrix &A = lor.GetAssembledMatrix();
-      solv_lor.reset(new LORSolver<LOR_AMS>(A, lor, A, fes_lor, ess_dofs));
+      solv_lor.reset(new LORSolver<LOR_AMS>(lor, fes_lor));
    }
 
    CGSolver cg(MPI_COMM_WORLD);

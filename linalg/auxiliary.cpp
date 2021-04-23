@@ -25,8 +25,7 @@ GeneralAMS::GeneralAMS(const Operator& curlcurl_op_,
                        const Operator& gradient_,
                        const Operator& pispacesolver_,
                        const Operator& gspacesolver_,
-                       const Operator& smoother_,
-                       const Array<int>& ess_tdof_list_)
+                       const Operator& smoother_)
    :
    Solver(curlcurl_op_.Height()),
    curlcurl_op(curlcurl_op_),
@@ -34,8 +33,7 @@ GeneralAMS::GeneralAMS(const Operator& curlcurl_op_,
    gradient(gradient_),
    pispacesolver(pispacesolver_),
    gspacesolver(gspacesolver_),
-   smoother(smoother_),
-   ess_tdof_list(ess_tdof_list_)
+   smoother(smoother_)
 {
 }
 
@@ -491,7 +489,7 @@ MatrixFreeAMS::MatrixFreeAMS(
                                                 inner_pi_iterations);
 
    general_ams = new GeneralAMS(oper, *Pi, *Gradient, *Pispacesolver,
-                                *Gspacesolver, *smoother, ess_tdof_list);
+                                *Gspacesolver, *smoother);
 
    delete h1_fec;
 }

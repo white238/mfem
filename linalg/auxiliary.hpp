@@ -133,8 +133,7 @@ public:
               const Operator& gradient_,
               const Operator& pispacesolver_,
               const Operator& gspacesolver_,
-              const Operator& smoother_,
-              const Array<int>& ess_tdof_list_);
+              const Operator& smoother_);
    virtual ~GeneralAMS();
 
    /// in principle this should set A_ = op;
@@ -149,7 +148,6 @@ private:
    const Operator& pispacesolver;
    const Operator& gspacesolver;
    const Operator& smoother;
-   const Array<int> ess_tdof_list;
 
    void FormResidual(const Vector& rhs, const Vector& x,
                      Vector& residual) const;

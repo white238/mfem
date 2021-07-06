@@ -27,6 +27,64 @@ namespace internal
 namespace quadrature_interpolator
 {
 
+// Template compute kernel for Values in 1D: tensor product version.
+template<QVectorLayout Q_LAYOUT,
+         int T_VDIM = 0, int T_D1D = 0, int T_Q1D = 0,
+         int MAX_D1D = 0, int MAX_Q1D = 0>
+static void Values1D(const int NE,
+                     const double *b_,
+                     const double *x_,
+                     double *y_,
+                     const int vdim = 0,
+                     const int d1d = 0,
+                     const int q1d = 0)
+{
+   const int D1D = T_D1D ? T_D1D : d1d;
+   const int Q1D = T_Q1D ? T_Q1D : q1d;
+   const int VDIM = T_VDIM ? T_VDIM : vdim;
+
+   const auto b = Reshape(b_, Q1D, D1D);
+   const auto x = Reshape(x_, D1D, VDIM, NE);
+   auto y = Q_LAYOUT == QVectorLayout::byNODES ?
+            Reshape(y_, Q1D, VDIM, NE):
+            Reshape(y_, VDIM, Q1D, NE);
+
+   MFEM_FORALL(e, NE,
+   {
+      const int D1D = T_D1D ? T_D1D : d1d;
+      const int Q1D = T_Q1D ? T_Q1D : q1d;
+      const int VDIM = T_VDIM ? T_VDIM : vdim;
+      constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
+      constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+      constexpr int MDQ = (MQ1 > MD1) ? MQ1 : MD1;
+
+      double dmem[MDQ], qmem[MDQ];
+      MFEM_SHARED double sB[MQ1*MD1];
+
+      DeviceVector D(dmem, MD1);
+      DeviceVector Q(qmem, MQ1);
+      ConstDeviceMatrix B(sB, D1D, Q1D);
+      kernels::internal::LoadB<MD1,MQ1>(D1D,Q1D,b,sB);
+
+      for (int c = 0; c < VDIM; c++)
+      {
+         for (int dx = 0; dx < D1D; dx++) { D(dx) = x(dx,c,e); }
+         for (int qx = 0; qx < Q1D; qx++)
+         {
+            double u = 0.0;
+            for (int dx = 0; dx < D1D; dx++) { u += B(dx,qx) * D(dx); }
+            Q(qx) = u;
+         }
+         for (int qx = 0; qx < Q1D; qx++)
+         {
+            const double u = Q(qx);
+            if (Q_LAYOUT == QVectorLayout::byVDIM) { y(c,qx,e) = u; }
+            if (Q_LAYOUT == QVectorLayout::byNODES) { y(qx,c,e) = u; }
+         }
+      }
+   });
+}
+
 // Template compute kernel for Values in 2D: tensor product version.
 template<QVectorLayout Q_LAYOUT,
          int T_VDIM = 0, int T_D1D = 0, int T_Q1D = 0,

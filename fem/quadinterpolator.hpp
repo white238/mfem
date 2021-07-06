@@ -47,6 +47,10 @@ protected:
    mutable Vector d_buffer;            ///< Auxiliary device buffer
 
 public:
+   static const int MAX_NQ1D = 100;
+   static const int MAX_ND1D = 100;
+   static const int MAX_VDIM1D = 3;
+
    static const int MAX_NQ2D = 100;
    static const int MAX_ND2D = 100;
    static const int MAX_VDIM2D = 3;

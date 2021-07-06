@@ -39,7 +39,7 @@ static bool testQuadratureInterpolator(const int dim,
    const int seed = 0x100001b3;
    const int ordering = Ordering::byNODES;
 
-   REQUIRE((dim == 2 || dim == 3));
+   REQUIRE((dim == 1 || dim == 2 || dim == 3));
    Mesh mesh = dim == 1 ? Mesh::MakeCartesian1D(nx, Element::SEGMENT) :
                dim == 2 ? Mesh::MakeCartesian2D(nx,ny, Element::QUADRILATERAL):
                Mesh::MakeCartesian3D(nx,nx,nz, Element::HEXAHEDRON);
@@ -118,6 +118,22 @@ static bool testQuadratureInterpolator(const int dim,
       Vector sq_val_f(NQ*NE), sq_der_f(dim*NQ*NE), sq_pdr_f(dim*NQ*NE);
       // Tensor results
       Vector sq_val_t(NQ*NE), sq_der_t(dim*NQ*NE), sq_pdr_t(dim*NQ*NE);
+
+      // Specific 1D tests
+      if (dim == 1)
+      {
+         // Full
+         SRN->Mult(x, xe);
+         sqi->DisableTensorProducts();
+         sqi->Values(xe, sq_val_f);
+
+         // Tensor
+         SRL->Mult(x, xe);
+         sqi->EnableTensorProducts();
+         sqi->Values(xe, sq_val_t);
+      }
+
+      if (dim != 1)
       {
          // Full
          SRN->Mult(x, xe);
@@ -129,6 +145,8 @@ static bool testQuadratureInterpolator(const int dim,
 
          sqi->PhysDerivatives(xe, sq_pdr_f);
       }
+
+      if (dim != 1)
       {
          // Tensor
          SRL->Mult(x, xe);
@@ -149,19 +167,24 @@ static bool testQuadratureInterpolator(const int dim,
       { std::cout << "sq_val rel. error = " << rel_error << std::endl; }
       REQUIRE(rel_error <= rel_tol);
 
-      norm = sq_der_f.Normlinf();
-      sq_der_f -= sq_der_t;
-      rel_error = sq_der_f.Normlinf()/norm;
-      if (verbose)
-      { std::cout << "sq_der rel. error = " << rel_error << std::endl; }
-      REQUIRE(rel_error <= rel_tol);
+      // For now, only Value is supported in 1D
+      if (dim != 1)
+      {
 
-      norm = sq_pdr_f.Normlinf();
-      sq_pdr_f -= sq_pdr_t;
-      rel_error = sq_pdr_f.Normlinf()/norm;
-      if (verbose)
-      { std::cout << "sq_pdr rel. error = " << rel_error << std::endl; }
-      REQUIRE(rel_error <= rel_tol);
+         norm = sq_der_f.Normlinf();
+         sq_der_f -= sq_der_t;
+         rel_error = sq_der_f.Normlinf()/norm;
+         if (verbose)
+         { std::cout << "sq_der rel. error = " << rel_error << std::endl; }
+         REQUIRE(rel_error <= rel_tol);
+
+         norm = sq_pdr_f.Normlinf();
+         sq_pdr_f -= sq_pdr_t;
+         rel_error = sq_pdr_f.Normlinf()/norm;
+         if (verbose)
+         { std::cout << "sq_pdr rel. error = " << rel_error << std::endl; }
+         REQUIRE(rel_error <= rel_tol);
+      }
    }
 
    {
@@ -178,6 +201,23 @@ static bool testQuadratureInterpolator(const int dim,
       Vector vq_val_t(dim*NQ*NE), vq_der_t(vdim*dim*NQ*NE),
              vq_det_t(NQ*NE),
              vq_pdr_t(vdim*dim*NQ*NE);
+
+      if (dim == 1)
+      {
+         // Full
+         VRN->Mult(nodes, ne);
+         vqi->DisableTensorProducts();
+
+         vqi->Values(ne, vq_val_f);
+
+         // Tensor
+         VRL->Mult(nodes, ne);
+         vqi->EnableTensorProducts();
+
+         vqi->Values(ne, vq_val_t);
+      }
+
+      if (dim != 1)
       {
          // Full
          VRN->Mult(nodes, ne);
@@ -191,6 +231,8 @@ static bool testQuadratureInterpolator(const int dim,
 
          vqi->PhysDerivatives(ne, vq_pdr_f);
       }
+
+      if (dim != 1)
       {
          // Tensor
          VRL->Mult(nodes, ne);
@@ -213,26 +255,29 @@ static bool testQuadratureInterpolator(const int dim,
       { std::cout << "vq_val rel. error = " << rel_error << std::endl; }
       REQUIRE(rel_error <= rel_tol);
 
-      norm = vq_der_f.Normlinf();
-      vq_der_f -= vq_der_t;
-      rel_error = vq_der_f.Normlinf()/norm;
-      if (verbose)
-      { std::cout << "vq_der rel. error = " << rel_error << std::endl; }
-      REQUIRE(rel_error <= rel_tol);
+      if (dim != 1)
+      {
+         norm = vq_der_f.Normlinf();
+         vq_der_f -= vq_der_t;
+         rel_error = vq_der_f.Normlinf()/norm;
+         if (verbose)
+         { std::cout << "vq_der rel. error = " << rel_error << std::endl; }
+         REQUIRE(rel_error <= rel_tol);
 
-      norm = vq_det_f.Normlinf();
-      vq_det_f -= vq_det_t;
-      rel_error = vq_det_f.Normlinf()/norm;
-      if (verbose)
-      { std::cout << "vq_det rel. error = " << rel_error << std::endl; }
-      REQUIRE(rel_error <= rel_tol);
+         norm = vq_det_f.Normlinf();
+         vq_det_f -= vq_det_t;
+         rel_error = vq_det_f.Normlinf()/norm;
+         if (verbose)
+         { std::cout << "vq_det rel. error = " << rel_error << std::endl; }
+         REQUIRE(rel_error <= rel_tol);
 
-      norm = vq_pdr_f.Normlinf();
-      vq_pdr_f -= vq_pdr_t;
-      rel_error = vq_pdr_f.Normlinf()/norm;
-      if (verbose)
-      { std::cout << "vq_pdr rel. error = " << rel_error << std::endl; }
-      REQUIRE(rel_error <= rel_tol);
+         norm = vq_pdr_f.Normlinf();
+         vq_pdr_f -= vq_pdr_t;
+         rel_error = vq_pdr_f.Normlinf()/norm;
+         if (verbose)
+         { std::cout << "vq_pdr rel. error = " << rel_error << std::endl; }
+         REQUIRE(rel_error <= rel_tol);
+      }
    }
 
    return true;
@@ -242,7 +287,7 @@ TEST_CASE("QuadratureInterpolator",
           "[QuadratureInterpolator]"
           "[CUDA]")
 {
-   const auto d = GENERATE(2,3); // dimension
+   const auto d = GENERATE(1,2,3); // dimension
    const auto p = GENERATE(range(1,7)); // element order, 1 <= p < 7
    const auto q = GENERATE_COPY(p+1,p+2); // 1D quadrature points
    const auto l = GENERATE(QVectorLayout::byNODES, QVectorLayout::byVDIM);

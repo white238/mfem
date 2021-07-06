@@ -43,6 +43,30 @@ void TensorValues<QVectorLayout::byNODES>(const int NE,
 
    const int id = (vdim<<8) | (D1D<<4) | Q1D;
 
+   if (dim == 1)
+   {
+      switch (id)
+      {
+         case 0x133: return Values1D<L,1,3,3>(NE,B,X,Y);
+         case 0x124: return Values1D<L,1,2,4>(NE,B,X,Y);
+         case 0x132: return Values1D<L,1,3,2>(NE,B,X,Y);
+         case 0x134: return Values1D<L,1,3,4>(NE,B,X,Y);
+         case 0x143: return Values1D<L,1,4,3>(NE,B,X,Y);
+         case 0x144: return Values1D<L,1,4,4>(NE,B,X,Y);
+
+         default:
+         {
+            constexpr int MD = MAX_D1D;
+            constexpr int MQ = MAX_Q1D;
+            MFEM_VERIFY(D1D <= MD, "Orders higher than " << MD-1
+                        << " are not supported!");
+            MFEM_VERIFY(Q1D <= MQ, "Quadrature rules with more than "
+                        << MQ << " 1D points are not supported!");
+            Values1D<L,0,0,0,MD,MQ>(NE,B,X,Y,vdim,D1D,Q1D);
+            return;
+         }
+      }
+   }
    if (dim == 2)
    {
       switch (id)

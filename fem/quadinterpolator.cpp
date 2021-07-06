@@ -56,6 +56,82 @@ namespace internal
 namespace quadrature_interpolator
 {
 
+// Template compute kernel for 1D quadrature interpolation:
+// * non-tensor product version.
+template<const int T_VDIM, const int T_ND, const int T_NQ>
+static void Eval1D(const int NE,
+                   const int vdim,
+                   const QVectorLayout q_layout,
+                   const GeometricFactors *geom,
+                   const DofToQuad &maps,
+                   const Vector &e_vec,
+                   Vector &q_val,
+                   Vector &, // unused q_der
+                   Vector &, // unused q_det
+                   const int eval_flags)
+{
+   using QI = QuadratureInterpolator;
+
+   const int nd = maps.ndof;
+   const int nq = maps.nqpt;
+   const int ND = T_ND ? T_ND : nd;
+   const int NQ = T_NQ ? T_NQ : nq;
+   const int NMAX = NQ > ND ? NQ : ND;
+   const int VDIM = T_VDIM ? T_VDIM : vdim;
+
+   // For now, only Value is supported in 1D
+   MFEM_VERIFY(!((eval_flags & QI::DERIVATIVES) ||
+                 (eval_flags & QI::PHYSICAL_DERIVATIVES) ||
+                 (eval_flags & QI::DETERMINANTS)),
+               "Only VALUES are supported in 1D!");
+
+   MFEM_ASSERT(maps.mode == DofToQuad::FULL, "internal error");
+   MFEM_VERIFY(!geom || geom->mesh->SpaceDimension() == 1, "");
+   MFEM_VERIFY(ND <= QI::MAX_ND1D, "");
+   MFEM_VERIFY(NQ <= QI::MAX_NQ1D, "");
+   const auto B = Reshape(maps.B.Read(), NQ, ND);
+   const auto E = Reshape(e_vec.Read(), ND, VDIM, NE);
+   auto val = q_layout == QVectorLayout::byNODES ?
+              Reshape(q_val.Write(), NQ, VDIM, NE):
+              Reshape(q_val.Write(), VDIM, NQ, NE);
+   MFEM_FORALL_2D(e, NE, NMAX, 1, 1,
+   {
+      const int ND = T_ND ? T_ND : nd;
+      const int NQ = T_NQ ? T_NQ : nq;
+      const int VDIM = T_VDIM ? T_VDIM : vdim;
+      constexpr int max_ND = T_ND ? T_ND : QI::MAX_ND1D;
+      constexpr int max_VDIM = T_VDIM ? T_VDIM : QI::MAX_VDIM1D;
+      MFEM_SHARED double s_E[max_VDIM*max_ND];
+      MFEM_FOREACH_THREAD(d, x, ND)
+      {
+         for (int c = 0; c < VDIM; c++)
+         {
+            s_E[c+d*VDIM] = E(d,c,e);
+         }
+      }
+      MFEM_SYNC_THREAD;
+
+      MFEM_FOREACH_THREAD(q, x, NQ)
+      {
+         if (eval_flags & QI::VALUES)
+         {
+            double ed[max_VDIM];
+            for (int c = 0; c < VDIM; c++) { ed[c] = 0.0; }
+            for (int d = 0; d < ND; ++d)
+            {
+               const double b = B(q,d);
+               for (int c = 0; c < VDIM; c++) { ed[c] += b*s_E[c+d*VDIM]; }
+            }
+            for (int c = 0; c < VDIM; c++)
+            {
+               if (q_layout == QVectorLayout::byVDIM)  { val(c,q,e) = ed[c]; }
+               if (q_layout == QVectorLayout::byNODES) { val(q,c,e) = ed[c]; }
+            }
+         }
+      }
+   });
+}
+
 // Template compute kernel for 2D quadrature interpolation:
 // * non-tensor product version,
 // * assumes 'e_vec' is using ElementDofOrdering::NATIVE,
@@ -459,7 +535,35 @@ void QuadratureInterpolator::Mult(const Vector &e_vec,
                    const int eval_flags) = NULL;
       if (vdim == 1)
       {
-         if (dim == 2)
+         if (dim == 1)
+         {
+            switch (100*nd + nq)
+            {
+               // Q0
+               case 101: mult = &Eval1D<1,1,1>; break;
+               case 104: mult = &Eval1D<1,1,4>; break;
+               // Q1
+               case 404: mult = &Eval1D<1,4,4>; break;
+               case 409: mult = &Eval1D<1,4,9>; break;
+               // Q2
+               case 909: mult = &Eval1D<1,9,9>; break;
+               case 916: mult = &Eval1D<1,9,16>; break;
+               // Q3
+               case 1616: mult = &Eval1D<1,16,16>; break;
+               case 1625: mult = &Eval1D<1,16,25>; break;
+               case 1636: mult = &Eval1D<1,16,36>; break;
+               // Q4
+               case 2525: mult = &Eval1D<1,25,25>; break;
+               case 2536: mult = &Eval1D<1,25,36>; break;
+               case 2549: mult = &Eval1D<1,25,49>; break;
+               case 2564: mult = &Eval1D<1,25,64>; break;
+            }
+            if (nq >= 100 || !mult)
+            {
+               mult = &Eval1D<1,0,0>;
+            }
+         }
+         else if (dim == 2)
          {
             switch (100*nd + nq)
             {

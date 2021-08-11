@@ -206,6 +206,9 @@ void OptionsParser::Parse()
                case STRING:
                   *(const char **)(options[j].var_ptr) = argv[i++];
                   break;
+               case STD_STRING:
+                  *(std::string *)(options[j].var_ptr) = argv[i++];
+                  break;
                case ENABLE:
                   *(bool *)(options[j].var_ptr) = true;
                   option_check[j+1] = 1;  // Do not allow the DISABLE Option
@@ -285,6 +288,10 @@ void OptionsParser::WriteValue(const Option &opt, std::ostream &out)
 
       case STRING:
          out << *(const char **)(opt.var_ptr);
+         break;
+
+      case STD_STRING:
+         out << *(std::string *)(opt.var_ptr);
          break;
 
       case ARRAY:
@@ -404,8 +411,9 @@ void OptionsParser::PrintHelp(ostream &out) const
    static const char *seprtr = ", ";
    static const char *descr_sep = "\n\t";
    static const char *line_sep = "";
-   static const char *types[] = { " <int>", " <double>", " <string>", "", "",
-                                  " '<int>...'", " '<double>...'"
+   static const char *types[] = { " <int>", " <double>", " <string>",
+                                  " <string>", "", "", " '<int>...'",
+                                  " '<double>...'"
                                 };
 
    out << indent << "-h" << seprtr << "--help" << descr_sep

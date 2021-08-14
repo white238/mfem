@@ -317,14 +317,15 @@ ParallelEliminateEssentialBC(const Array<int> &bdr_attr_is_ess,
 void ParBilinearForm::TrueAddMult(const Vector &x, Vector &y, const double a)
 const
 {
-   MFEM_VERIFY(interior_face_integs.Size() == 0,
-               "the case of interior face integrators is not"
-               " implemented");
-
    if (X.ParFESpace() != pfes)
    {
       X.SetSpace(pfes);
       Y.SetSpace(pfes);
+   }
+
+   if (Ytmp.ParFESpace() != pfes)
+   {
+     Ytmp.SetSpace(pfes);
    }
 
    X.Distribute(&x);
@@ -334,9 +335,14 @@ const
    }
    else
    {
+     MFEM_VERIFY(interior_face_integs.Size() == 0,
+                 "the case of interior face integrators is not"
+                 " implemented");
       mat->Mult(X, Y);
    }
-   pfes->Dof_TrueDof_Matrix()->MultTranspose(a, Y, 1.0, y);
+   //pfes->Dof_TrueDof_Matrix()->MultTranspose(a, Y, 1.0, y);
+   pfes->GetProlongationMatrix()->MultTranspose(Y, Ytmp);
+   y.Add(a,Ytmp);
 }
 
 void ParBilinearForm::FormLinearSystem(

@@ -82,6 +82,68 @@ static void EAMassAssemble2D(const int NE,
    auto B = Reshape(basis.Read(), Q1D, D1D);
    auto D = Reshape(padata.Read(), Q1D, Q1D, NE);
    auto M = Reshape(eadata.ReadWrite(), D1D, D1D, D1D, D1D, NE);
+
+#if 1
+   MFEM_FORALL(e, NE, {
+      double r_B[MAX_Q1D][MAX_D1D][MAX_D1D];
+      double U[MAX_Q1D][MAX_D1D][MAX_D1D];
+
+      for (int j1 = 0; j1 < D1D; ++j1)
+        {
+          for (int i1 = 0; i1 < D1D; ++i1)
+            {
+              for (int k1 = 0; k1 < Q1D; k1++)
+                {
+                  r_B[k1][i1][j1] = B(k1, i1) * B(k1, j1);
+                }
+            }
+        }
+
+      for (int j2 = 0; j2 < D1D; ++j2)
+        {
+          for (int i2 = 0; i2 < D1D; ++i2)
+            {
+              for (int k1 = 0; k1 < Q1D; ++k1)
+                {
+                  double dot(0.0);
+                  for (int k2 = 0; k2 < Q1D; ++k2)
+                    {
+                      dot += r_B[k2][i2][j2] * D(k1, k2, e);
+                    }
+                  U[k1][i2][j2] = dot;
+                }
+            }
+        }
+
+      for (int j2 = 0; j2 < D1D; ++j2)
+        {
+          for (int j1 = 0; j1 < D1D; ++j1)
+            {
+              for (int i2 = 0; i2 < D1D; ++i2)
+                {
+                  for (int i1 = 0; i1 < D1D; ++i1)
+                    {
+                      double dot(0.0);
+                      for (int k1 = 0; k1 < Q1D; ++k1)
+                        {
+                          dot += r_B[k1][i1][j1] * U[k1][i2][j2];
+                        }
+
+                      //if (add)
+                      //{
+                      //M(i1, i2, j1, j2, e) += dot;
+                      //}
+                      //else
+                      //{
+                          M(i1, i2, j1, j2, e) = dot;
+                          //}
+                    }
+                }
+            }
+        }
+     });
+
+#else
    MFEM_FORALL_3D(e, NE, D1D, D1D, 1,
    {
       const int D1D = T_D1D ? T_D1D : d1d;
@@ -136,6 +198,7 @@ static void EAMassAssemble2D(const int NE,
          }
       }
    });
+#endif
 }
 
 template<int T_D1D = 0, int T_Q1D = 0>

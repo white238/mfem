@@ -626,8 +626,9 @@ void NDK_PAMassApply(const int dim,
    double *y = Y.ReadWrite();
 
    assert(dim == 3);
+   const int dev = !Device::IsEnabled();
    const int ver = Device::KernelsVersion();
-   const int id = (ver << 8) | (D1D << 4) | Q1D;
+   const int id = (dev<<12) | (ver << 8) | (D1D << 4) | Q1D;
 
    //printf("\033[32mkernel #0x%x\033[m\n",id); fflush(0);
 
@@ -658,6 +659,14 @@ void NDK_PAMassApply(const int dim,
       case 0x158: return NDK_SmRgPAMassApply3D<5,8,1>(ND,NE,map,b,d,x,y);
       case 0x167: return NDK_SmRgPAMassApply3D<6,7,1>(ND,NE,map,b,d,x,y);//5
       case 0x178: return NDK_SmRgPAMassApply3D<7,8,1>(ND,NE,map,b,d,x,y);//6
+
+      // CPU Fast '1': Legacy & half smem non-deterministic 3D mass kernel
+      case 0x1123: return NDK_SmRgPAMassApply3D<2,3,1>(ND,NE,map,b,d,x,y);//1
+      case 0x1134: return NDK_SmRgPAMassApply3D<3,4,1>(ND,NE,map,b,d,x,y);//2
+      case 0x1145: return NDK_SmRgPAMassApply3D<4,5,1>(ND,NE,map,b,d,x,y);//3
+      case 0x1156: return NDK_SmRgPAMassApply3D<5,6,1>(ND,NE,map,b,d,x,y);//4
+      case 0x1167: return NDK_SmRgPAMassApply3D<6,7,1>(ND,NE,map,b,d,x,y);//5
+      case 0x1178: return NDK_SmRgPAMassApply3D<7,8,1>(ND,NE,map,b,d,x,y);//6
 
       // Fast '2': libP non-deterministic 3D mass kernel
       case 0x223: return NDK_RegsPAMassApply3D<2,3>(ND,NE,map,b,d,x,y);

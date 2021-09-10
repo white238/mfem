@@ -51,10 +51,16 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D,
       constexpr int MD1 = T_D1D ? T_D1D : T_MAX;
 
       MFEM_SHARED double BG[2][MQ1*MD1];
-      MFEM_SHARED double DDD[3][MD1*MD1*MD1];
+      MFEM_SHARED double sm0[9][MQ1*MQ1*MQ1];
+      MFEM_SHARED double sm1[9][MQ1*MQ1*MQ1];
+      double (*DDD)[MD1*MD1*MD1] = (double (*)[MD1*MD1*MD1]) sm0;
+      double (*DDQ)[MD1*MD1*MQ1] = (double (*)[MD1*MD1*MQ1]) sm1;
+      double (*DQQ)[MD1*MQ1*MQ1] = (double (*)[MD1*MQ1*MQ1]) sm0;
+      double (*QQQ)[MQ1*MQ1*MQ1] = (double (*)[MQ1*MQ1*MQ1]) sm1;
+      /*MFEM_SHARED double DDD[3][MD1*MD1*MD1];
       MFEM_SHARED double DDQ[9][MD1*MD1*MQ1];
       MFEM_SHARED double DQQ[9][MD1*MQ1*MQ1];
-      MFEM_SHARED double QQQ[9][MQ1*MQ1*MQ1];
+      MFEM_SHARED double QQQ[9][MQ1*MQ1*MQ1];*/
 
       kernels::internal::LoadX<MD1>(e,D1D,X,DDD);
       kernels::internal::LoadBG<MD1,MQ1>(D1D,Q1D,b,g,BG);
@@ -125,14 +131,11 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D_fast,
                            const Array<double> &g_,
                            const DenseTensor &j_,
                            const Vector &h_,
-                           //const Vector &xe_,
                            const Vector &xd_,
-                           //Vector &ye_,
                            Vector &yd_,
                            const int d1d,
                            const int q1d)
 {
-   //dbg();
    constexpr int DIM = 3;
    const int D1D = T_D1D ? T_D1D : d1d;
    const int Q1D = T_Q1D ? T_Q1D : q1d;
@@ -141,10 +144,8 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D_fast,
    const auto b = Reshape(b_.Read(), Q1D, D1D);
    const auto g = Reshape(g_.Read(), Q1D, D1D);
    const auto J = Reshape(j_.Read(), DIM, DIM, Q1D, Q1D, Q1D, NE);
-   //const auto XE = Reshape(xe_.Read(), D1D, D1D, D1D, DIM, NE);
    const auto XD = Reshape(xd_.Read(), ND, DIM);
    const auto H = Reshape(h_.Read(), DIM, DIM, DIM, DIM, Q1D, Q1D, Q1D, NE);
-   //auto YE = Reshape(ye_.ReadWrite(), D1D, D1D, D1D, DIM, NE);
    auto YD = Reshape(yd_.ReadWrite(), ND, DIM);
 
    MFEM_FORALL_3D(e, NE, Q1D, Q1D, Q1D,
@@ -156,10 +157,12 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D_fast,
       constexpr int MD1 = T_D1D ? T_D1D : T_MAX;
 
       MFEM_SHARED double BG[2][MQ1*MD1];
-      MFEM_SHARED double DDD[3][MD1*MD1*MD1];
-      MFEM_SHARED double DDQ[9][MD1*MD1*MQ1];
-      MFEM_SHARED double DQQ[9][MD1*MQ1*MQ1];
-      MFEM_SHARED double QQQ[9][MQ1*MQ1*MQ1];
+      MFEM_SHARED double sm0[9][MQ1*MQ1*MQ1];
+      MFEM_SHARED double sm1[9][MQ1*MQ1*MQ1];
+      double (*DDD)[MD1*MD1*MD1] = (double (*)[MD1*MD1*MD1]) sm0;
+      double (*DDQ)[MD1*MD1*MQ1] = (double (*)[MD1*MD1*MQ1]) sm1;
+      double (*DQQ)[MD1*MQ1*MQ1] = (double (*)[MD1*MQ1*MQ1]) sm0;
+      double (*QQQ)[MQ1*MQ1*MQ1] = (double (*)[MQ1*MQ1*MQ1]) sm1;
 
       kernels::internal::LoadX<MD1>(e,D1D,M,XD,DDD);
       kernels::internal::LoadBG<MD1,MQ1>(D1D,Q1D,b,g,BG);
@@ -237,8 +240,7 @@ void TMOP_Integrator::AddMultGradPA_3D(const Vector &R, Vector &C) const
 
    if (!fast)
    {
-      assert(false);
-      //MFEM_LAUNCH_TMOP_KERNEL(AddMultGradPA_Kernel_3D,id,NE,B,G,J,H,R,C);
+      MFEM_LAUNCH_TMOP_KERNEL(AddMultGradPA_Kernel_3D,id,NE,B,G,J,H,R,C);
    }
    else
    {

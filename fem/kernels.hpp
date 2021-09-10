@@ -1350,7 +1350,7 @@ template<int MQ1>
 MFEM_HOST_DEVICE inline void PushGrad(const int Q1D,
                                       const int x, const int y, const int z,
                                       const double *A,
-                                      double (&sQQQ)[9][MQ1*MQ1*MQ1])
+                                      double (*sQQQ)[MQ1*MQ1*MQ1])
 {
    DeviceCube XxBBG(sQQQ[0], Q1D, Q1D, Q1D);
    DeviceCube XxBGB(sQQQ[1], Q1D, Q1D, Q1D);
@@ -1377,8 +1377,8 @@ MFEM_HOST_DEVICE inline void PushGrad(const int Q1D,
 template<int MD1, int MQ1>
 MFEM_HOST_DEVICE inline void GradZt(const int D1D, const int Q1D,
                                     const double (&sBG)[2][MQ1*MD1],
-                                    const double (&sQQQ)[9][MQ1*MQ1*MQ1],
-                                    double (&sDQQ)[9][MD1*MQ1*MQ1])
+                                    const double (*sQQQ)[MQ1*MQ1*MQ1],
+                                    double (*sDQQ)[MD1*MQ1*MQ1])
 {
 
    ConstDeviceMatrix Bt(sBG[0], Q1D, D1D);
@@ -1449,8 +1449,8 @@ MFEM_HOST_DEVICE inline void GradZt(const int D1D, const int Q1D,
 template<int MD1, int MQ1>
 MFEM_HOST_DEVICE inline void GradYt(const int D1D, const int Q1D,
                                     const double (&sBG)[2][MQ1*MD1],
-                                    const double (&sDQQ)[9][MD1*MQ1*MQ1],
-                                    double (&sDDQ)[9][MD1*MD1*MQ1])
+                                    const double (*sDQQ)[MD1*MQ1*MQ1],
+                                    double (*sDDQ)[MD1*MD1*MQ1])
 {
    ConstDeviceMatrix Bt(sBG[0], Q1D, D1D);
    ConstDeviceMatrix Gt(sBG[1], Q1D, D1D);
@@ -1521,7 +1521,7 @@ MFEM_HOST_DEVICE inline void GradYt(const int D1D, const int Q1D,
 template<int MD1, int MQ1>
 MFEM_HOST_DEVICE inline void GradXt(const int D1D, const int Q1D,
                                     const double (&sBG)[2][MQ1*MD1],
-                                    const double (&sDDQ)[9][MD1*MD1*MQ1],
+                                    const double (*sDDQ)[MD1*MD1*MQ1],
                                     const DeviceTensor<5> &Y, // output
                                     const int e)
 {
@@ -1575,7 +1575,7 @@ MFEM_HOST_DEVICE inline void GradXt(const int D1D, const int Q1D,
 template<int MD1, int MQ1> MFEM_HOST_DEVICE inline
 void GradXt(const int D1D, const int Q1D,
             const double (&sBG)[2][MQ1*MD1],
-            const double (&sDDQ)[9][MD1*MD1*MQ1],
+            const double (*sDDQ)[MD1*MD1*MQ1],
             const DeviceTensor<4, const int> &M,
             const DeviceMatrix &YD, // output
             const int e)

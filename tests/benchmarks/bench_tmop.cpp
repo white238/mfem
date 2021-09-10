@@ -31,7 +31,7 @@ struct TMOP
    const IntegrationRule *ir;
    TMOP_Integrator nlfi;
    const int dofs;
-   GridFunction x;
+   GridFunction x,y;
    Vector de,xe,ye;
    double mdof;
 
@@ -48,6 +48,7 @@ struct TMOP
       nlfi(&metric, &target_c),
       dofs(fes.GetVSize()),
       x(&fes),
+      y(&fes),
       de(R->Height(), Device::GetMemoryType()),
       xe(R->Height(), Device::GetMemoryType()),
       ye(R->Height(), Device::GetMemoryType()),
@@ -77,8 +78,10 @@ struct TMOP
 
    void AddMultGradPA()
    {
+      const bool fast = Device::FastKernelsEnabled();
       tic_toc.Start();
-      nlfi.AddMultGradPA(xe,ye);
+      if (!fast) { nlfi.AddMultGradPA(xe,ye); }
+      else { nlfi.AddMultGradPA(x,y); }
       MFEM_DEVICE_SYNC;
       tic_toc.Stop();
       mdof += 1e-6 * dofs;

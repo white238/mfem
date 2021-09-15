@@ -11,16 +11,21 @@
 
 #include "bench.hpp"
 
+#define MFEM_DEBUG_COLOR 218
+#include "general/debug.hpp"
+
 #ifdef MFEM_USE_BENCHMARK
 
 #include "fem/tmop.hpp"
 #include <cassert>
 #include <memory>
 #include <cmath>
+#include <string>
 
 struct TMOP
 {
-   const int N, p, q, dim = 3;
+   const int n;
+   const int nx, ny, nz, check, p, q, dim = 3;
    Mesh mesh;
    TMOP_Metric_302 metric;
    TargetConstructor::TargetType target_t;
@@ -35,10 +40,15 @@ struct TMOP
    Vector de,xe,ye;
    double mdof;
 
-   TMOP(int p, bool p_eq_q = false):
-      N(Device::IsEnabled()?16:8),
+   TMOP(int p, int c, bool p_eq_q):
+      n((assert(c>=p), c/p)),
+      nx(n + (p*(n+1)*p*n*p*n < c*c*c ?1:0)),
+      ny(n + (p*(n+1)*p*(n+1)*p*n < c*c*c ?1:0)),
+      nz(n),
+      check((//dbg("p:%d, c:%d, n:%p, %dx%dx%d",p,c,n,nx,ny,nz),
+               assert(nx>0 && ny>0 && nz>0),1)),
       p(p), q(2*p + (p_eq_q ? 0 : 2)),
-      mesh(Mesh::MakeCartesian3D(N,N,N,Element::HEXAHEDRON)),
+      mesh(Mesh::MakeCartesian3D(nx,ny,nz, Element::HEXAHEDRON)),
       target_t(TargetConstructor::IDEAL_SHAPE_EQUAL_SIZE),
       target_c(target_t),
       fec(p, dim),
@@ -54,6 +64,15 @@ struct TMOP
       ye(R->Height(), Device::GetMemoryType()),
       mdof(0.0)
    {
+      /*
+        dbg("p:%d, c:%d, n:%d, c_MOD_p:%d [%dx%dx%d] %d * %d * %d <?= %d * %d * %d",
+            p, c, n, c%p,
+            nx , ny , nz,
+            p*nx , p*ny , p*nz,
+            c, c ,c);*/
+      MFEM_VERIFY(p*nx * p*ny * p*nz <= c*c*c, "Error");
+      MFEM_VERIFY(p*(nx+1) * p*(ny+1) * p*nz > c*c*c, "Error");
+      MFEM_VERIFY(p*(nx+1) * p*(ny+1) * p*(nz+1) > c*c*c, "Error");
       mesh.SetNodalGridFunction(&x);
       target_c.SetNodes(x);
 
@@ -114,6 +133,8 @@ struct TMOP
 // The different orders the tests can run
 #define P_ORDERS {1,2,3,4}
 
+#define N_SIDES {4,6,8,12,16,20,24,32,48,64}
+
 // P_EQ_Q selects the D1D & Q1D to use instanciated kernels
 //  P_EQ_Q: 0x22, 0x33, 0x44, 0x55
 // !P_EQ_Q: 0x23, 0x34, 0x45, 0x56
@@ -129,7 +150,11 @@ struct Kernel: public bm::Fixture
 
    using bm::Fixture::SetUp;
    void SetUp(const bm::State& state) BENCHMARK_OVERRIDE
-   { ker.reset(new TMOP(state.range(1), state.range(0))); }
+   {
+      const int p = state.range(2);
+      const bool p_eq_q = state.range(0);
+      const int ref_factor = state.range(1);
+      ker.reset(new TMOP(p, ref_factor, p_eq_q)); }
 
    using bm::Fixture::TearDown;
    void TearDown(const bm::State &) BENCHMARK_OVERRIDE { ker.reset(); }
@@ -144,7 +169,7 @@ BENCHMARK_DEFINE_F(Kernel,Bench)(bm::State &state){\
    while (state.KeepRunning()) { ker->Bench(); }\
    state.counters["MDof"] = bm::Counter(ker->Mdof(), bm::Counter::kIsRate);\
    state.counters["MDof/s"] = bm::Counter(ker->Mdofs());}\
- BENCHMARK_REGISTER_F(Kernel,Bench)->ArgsProduct({P_EQ_Q,P_ORDERS})->Unit(bm::kMicrosecond);
+ BENCHMARK_REGISTER_F(Kernel,Bench)->ArgsProduct({P_EQ_Q, N_SIDES, P_ORDERS})->Unit(bm::kMicrosecond);
 /// creating/registering, not used
 //BENCHMARK_TMOP_F(AddMultPA)
 //BENCHMARK_TMOP_F(AddMultGradPA)
@@ -156,11 +181,19 @@ BENCHMARK_DEFINE_F(Kernel,Bench)(bm::State &state){\
 */
 #define BENCHMARK_TMOP(Bench)\
 static void Bench(bm::State &state){\
-   TMOP ker(state.range(1),state.range(0));\
+   const int p = state.range(2);\
+   const int c = state.range(1);\
+   const bool q = state.range(0);\
+   TMOP ker(p, c, q); \
    while (state.KeepRunning()) { ker.Bench(); }\
-   state.counters["MDof"] = bm::Counter(ker.Mdof(), bm::Counter::kIsRate);\
+   state.SetItemsProcessed(ker.dofs*state.iterations()); \
+   char label[64]; snprintf(label, 64, "%8d %.5f", ker.dofs, ker.Mdofs()); \
+   state.SetLabel(label); \
+   state.counters["p"] = bm::Counter(p); \
+   state.counters["Dofs"] = bm::Counter(ker.dofs); \
+   state.counters["MDof"] = bm::Counter(ker.Mdof(), bm::Counter::kIsRate); \
    state.counters["MDof/s"] = bm::Counter(ker.Mdofs());}\
- BENCHMARK(Bench)->ArgsProduct({P_EQ_Q,P_ORDERS})->Unit(bm::kMicrosecond);
+BENCHMARK(Bench)->ArgsProduct({P_EQ_Q, N_SIDES, P_ORDERS})->Unit(bm::kMicrosecond);//->Threads(1);
 /// creating/registering
 BENCHMARK_TMOP(AddMultPA)
 BENCHMARK_TMOP(AddMultGradPA)
@@ -174,7 +207,7 @@ BENCHMARK_TMOP(AssembleGradDiagonalPA)
  */
 int main(int argc, char *argv[])
 {
-   bm::ConsoleReporter CR;
+   bm::ConsoleReporter CR(bm::ConsoleReporter::OO_Tabular);
    bm::Initialize(&argc, argv);
 
    // Device setup, cpu by default

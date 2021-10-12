@@ -60,7 +60,7 @@ void EvalH_302(const int e, const int qx, const int qy, const int qz,
       }
    }
 }
-
+/*
 // dP_303 = ddI1b/3
 static MFEM_HOST_DEVICE inline
 void EvalH_303(const int e, const int qx, const int qy, const int qz,
@@ -228,7 +228,7 @@ void EvalH_332(const int e, const int qx, const int qy, const int qz,
          }
       }
    }
-}
+}*/
 
 MFEM_REGISTER_TMOP_KERNELS(void, SetupGradPA_3D,
                            const double metric_normal,
@@ -258,21 +258,44 @@ MFEM_REGISTER_TMOP_KERNELS(void, SetupGradPA_3D,
    const auto X = Reshape(x_.Read(), D1D, D1D, D1D, DIM, NE);
    auto H = Reshape(h_.Write(), DIM, DIM, DIM, DIM, Q1D, Q1D, Q1D, NE);
 
-   MFEM_FORALL_3D(e, NE, Q1D, Q1D, Q1D,
+   constexpr int NSM = 80;
+   const int BFS = 27*Q1D*Q1D*Q1D;
+   static Vector smem;
+   smem.SetSize(NSM*BFS);
+   smem.UseDevice(true);
+   auto S = smem.Write();
+
+   MFEM_FORALL_3D_GRID(e, NE, Q1D, Q1D, 4, NSM,
    {
       const int D1D = T_D1D ? T_D1D : d1d;
       const int Q1D = T_Q1D ? T_Q1D : q1d;
       constexpr int MQ1 = T_Q1D ? T_Q1D : T_MAX;
       constexpr int MD1 = T_D1D ? T_D1D : T_MAX;
 
+      double *SM = S;
+      assert(MFEM_BLOCK_ID(x)<NSM);
+
       MFEM_SHARED double s_BG[2][MQ1*MD1];
-      MFEM_SHARED double s_DDD[3][MD1*MD1*MD1];
-      MFEM_SHARED double s_DDQ[9][MD1*MD1*MQ1];
-      MFEM_SHARED double s_DQQ[9][MD1*MQ1*MQ1];
-      MFEM_SHARED double s_QQQ[9][MQ1*MQ1*MQ1];
+      //double (*s_BG)[MQ1*MD1] = (double (*)[MQ1*MD1]) (SM + 0);
+
+      int offset = MFEM_BLOCK_ID(x)*BFS;
+      //MFEM_SHARED double s_DDD[3][MD1*MD1*MD1];
+      double (*s_DDD)[MD1*MD1*MD1] = (double (*)[MD1*MD1*MD1]) (SM + offset);
+      offset += 3*MD1*MD1*MD1;
+
+      //MFEM_SHARED double s_DDQ[6][MD1*MD1*MQ1];
+      double (*s_DDQ)[MD1*MD1*MQ1] = (double (*)[MD1*MD1*MQ1]) (SM + offset);
+      offset += 6*MD1*MD1*MQ1;
+
+      //MFEM_SHARED double s_DQQ[9][MD1*MQ1*MQ1];
+      double (*s_DQQ)[MD1*MQ1*MQ1] = (double (*)[MD1*MQ1*MQ1]) (SM + offset);
+      offset += 9*MD1*MQ1*MQ1;
+
+      //MFEM_SHARED double s_QQQ[9][MQ1*MQ1*MQ1];
+      double (*s_QQQ)[MQ1*MQ1*MQ1] = (double (*)[MQ1*MQ1*MQ1]) (SM + offset);
 
       kernels::internal::LoadX<MD1>(e,D1D,X,s_DDD);
-      kernels::internal::LoadBG<MD1,MQ1>(D1D,Q1D,b,g,s_BG);
+      kernels::internal::LoadBGs<MD1,MQ1>(D1D,Q1D,b,g,s_BG);
 
       kernels::internal::GradX<MD1,MQ1>(D1D,Q1D,s_BG,s_DDD,s_DDQ);
       kernels::internal::GradY<MD1,MQ1>(D1D,Q1D,s_BG,s_DDQ,s_DQQ);
@@ -302,10 +325,10 @@ MFEM_REGISTER_TMOP_KERNELS(void, SetupGradPA_3D,
 
                // metric->AssembleH
                if (mid == 302) { EvalH_302(e,qx,qy,qz,weight,Jpt,H); }
-               if (mid == 303) { EvalH_303(e,qx,qy,qz,weight,Jpt,H); }
-               if (mid == 315) { EvalH_315(e,qx,qy,qz,weight,Jpt,H); }
-               if (mid == 321) { EvalH_321(e,qx,qy,qz,weight,Jpt,H); }
-               if (mid == 332) { EvalH_332(e,qx,qy,qz,weight,metric_param,Jpt,H); }
+               //if (mid == 303) { EvalH_303(e,qx,qy,qz,weight,Jpt,H); }
+               //if (mid == 315) { EvalH_315(e,qx,qy,qz,weight,Jpt,H); }
+               //if (mid == 321) { EvalH_321(e,qx,qy,qz,weight,Jpt,H); }
+               //if (mid == 332) { EvalH_332(e,qx,qy,qz,weight,metric_param,Jpt,H); }
             } // qx
          } // qy
       } // qz

@@ -400,8 +400,8 @@ int main (int argc, char *argv[])
       pmesh = new ParMesh(MPI_COMM_WORLD, *mesh);
    }
    delete [] nxyz;
-   delete mesh;
 
+   delete mesh;
    for (int lev = 0; lev < rp_levels; lev++)
    {
       pmesh->UniformRefinement();
@@ -1335,7 +1335,6 @@ int main (int argc, char *argv[])
       lim_coeff.constant = lim_const;
       coef_zeta.constant = adapt_lim_const;
    }
-
    if (myid == 0)
    {
       cout << "Initial strain energy: " << init_energy

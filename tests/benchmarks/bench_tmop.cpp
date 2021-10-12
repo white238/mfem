@@ -109,7 +109,7 @@ struct TMOP
 };
 
 // The different orders the tests can run
-#define P_ORDERS {1,2,3,4}
+#define P_ORDERS {1,2,3,4,6,8}
 
 // P_EQ_Q selects the D1D & Q1D to use instantiated kernels
 //  P_EQ_Q: 0x22, 0x33, 0x44, 0x55

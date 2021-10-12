@@ -105,23 +105,28 @@ void TensorDerivatives<QVectorLayout::byNODES>(const int NE,
          case 0x335: return Derivatives3D<L,P,3,3,5>(NE,B,G,J,X,Y);
          case 0x336: return Derivatives3D<L,P,3,3,6>(NE,B,G,J,X,Y);
          case 0x344: return Derivatives3D<L,P,3,4,4>(NE,B,G,J,X,Y);
+         case 0x345: return Derivatives3D<L,P,3,4,5>(NE,B,G,J,X,Y);
          case 0x346: return Derivatives3D<L,P,3,4,6>(NE,B,G,J,X,Y);
          case 0x347: return Derivatives3D<L,P,3,4,7>(NE,B,G,J,X,Y);
          case 0x348: return Derivatives3D<L,P,3,4,8>(NE,B,G,J,X,Y);
+         case 0x356: return Derivatives3D<L,P,3,5,6>(NE,B,G,J,X,Y);
+         case 0x378: return Derivatives3D<L,P,3,7,8>(NE,B,G,J,X,Y);
+         case 0x39A: return Derivatives3D<L,P,3,9,10>(NE,B,G,J,X,Y);
          default:
          {
-            constexpr int MD = 8;
-            constexpr int MQ = 8;
-            MFEM_VERIFY(D1D <= MD, "Orders higher than " << MD-1
-                        << " are not supported!");
-            MFEM_VERIFY(Q1D <= MQ, "Quadrature rules with more than "
-                        << MQ << " 1D points are not supported!");
-            Derivatives3D<L,P,0,0,0,MD,MQ>(NE,B,G,J,X,Y,vdim,D1D,Q1D);
-            return;
+            /*
+              constexpr int MD = 8;
+              constexpr int MQ = 8;
+              MFEM_VERIFY(D1D <= MD, "Orders higher than " << MD-1
+                          << " are not supported!");
+              MFEM_VERIFY(Q1D <= MQ, "Quadrature rules with more than "
+                          << MQ << " 1D points are not supported!");
+              Derivatives3D<L,P,0,0,0,MD,MQ>(NE,B,G,J,X,Y,vdim,D1D,Q1D);
+              return;*/
          }
       }
    }
-   mfem::out << "Unknown kernel 0x" << std::hex << id << std::endl;
+   mfem::out << "Unknown kernel 0x" << std::hex << id << std::dec << std::endl;
    MFEM_ABORT("Kernel not supported yet");
 }
 

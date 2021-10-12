@@ -119,14 +119,14 @@ void TensorValues<QVectorLayout::byNODES>(const int NE,
 
          default:
          {
-            constexpr int MD = 8;
+            /*constexpr int MD = 8;
             constexpr int MQ = 8;
             MFEM_VERIFY(D1D <= MD, "Orders higher than " << MD-1
                         << " are not supported!");
             MFEM_VERIFY(Q1D <= MQ, "Quadrature rules with more than "
                         << MQ << " 1D points are not supported!");
             Values3D<L,0,0,0,MD,MQ>(NE,B,X,Y,vdim,D1D,Q1D);
-            return;
+            return;*/
          }
       }
    }

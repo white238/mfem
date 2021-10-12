@@ -18,8 +18,9 @@
 
 namespace mfem
 {
-
+#warning Modified MFEM_REGISTER_TMOP_KERNELS with few kernels
 #if 1
+// AddMultGradPA_Kernel_3D non fast
 MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D,
                            const int NE,
                            const Array<double> &b_,
@@ -42,7 +43,14 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D,
    const auto H = Reshape(h_.Read(), DIM, DIM, DIM, DIM, Q1D, Q1D, Q1D, NE);
    auto Y = Reshape(y_.ReadWrite(), D1D, D1D, D1D, DIM, NE);
 
-   MFEM_FORALL_3D(e, NE, Q1D, Q1D, Q1D,
+   constexpr int NSM = 80;
+   const int BFS = 27*Q1D*Q1D*Q1D;
+   static Vector smem;
+   smem.SetSize(NSM*BFS);
+   smem.UseDevice(true);
+   auto S = smem.Write();
+
+   MFEM_FORALL_3D_GRID(e, NE, Q1D, Q1D, Q1D,NSM,
    {
       constexpr int DIM = 3;
       const int D1D = T_D1D ? T_D1D : d1d;
@@ -52,9 +60,19 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D,
 
       MFEM_SHARED double BG[2][MQ1*MD1];
       MFEM_SHARED double DDD[3][MD1*MD1*MD1];
-      MFEM_SHARED double DDQ[9][MD1*MD1*MQ1];
-      MFEM_SHARED double DQQ[9][MD1*MQ1*MQ1];
-      MFEM_SHARED double QQQ[9][MQ1*MQ1*MQ1];
+
+      int offset = MFEM_BLOCK_ID(x)*BFS;
+      //MFEM_SHARED double DDQ[9][MD1*MD1*MQ1];
+      double (*DDQ)[MD1*MD1*MQ1] = (double (*)[MD1*MD1*MQ1]) (S + offset);
+      offset += 9*MD1*MD1*MQ1;
+
+      //MFEM_SHARED double DQQ[9][MD1*MQ1*MQ1];
+      double (*DQQ)[MD1*MQ1*MQ1] = (double (*)[MD1*MQ1*MQ1]) (S + offset);
+      offset += 9*MD1*MQ1*MQ1;
+
+      //MFEM_SHARED double QQQ[9][MQ1*MQ1*MQ1];
+      double (*QQQ)[MQ1*MQ1*MQ1] = (double (*)[MQ1*MQ1*MQ1]) (S + offset);
+      //offset += 9*MQ1*MQ1*MQ1;
 
       kernels::internal::LoadX<MD1>(e,D1D,X,DDD);
       kernels::internal::LoadBG<MD1,MQ1>(D1D,Q1D,b,g,BG);
@@ -118,7 +136,8 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D,
 }
 #endif
 
-#if 1
+#if 0
+// AddMultGradPA_Kernel_3D_fast without launch bounds
 MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D_fast,
                            const int ND,
                            const int NE,
@@ -223,22 +242,29 @@ MFEM_REGISTER_TMOP_KERNELS(void, AddMultGradPA_Kernel_3D_fast,
 #endif
 
 /******************************************************************************/
-template<int D1D, int Q1D, int NBK> MFEM_GLOBAL static
-MFEM_LAUNCH_BOUNDS(Q1D*Q1D*Q1D, NBK) // 2 registers
 // AddMultGradPA_Kernel_3D_fast with launch
+template<int D1D, int Q1D, int NBK=0> MFEM_GLOBAL static
+//MFEM_LAUNCH_BOUNDS(Q1D*Q1D*Q1D, NBK) // 2 registers
 void AMGPA(const int NE,
            const DeviceTensor<4,const int> M_,
            const DeviceTensor<2,const double> B_,
            const DeviceTensor<2,const double> G_,
            const DeviceTensor<6,const double> J_,
            const DeviceTensor<8,const double> H_,
+           double *S,
            const ConstDeviceMatrix XD,
            DeviceMatrix YD)
 {
-   constexpr int DIM = 3; // 2x
+   constexpr int DIM = 3;
 
-   MFEM_SHARED double sm0[9][Q1D*Q1D*Q1D];
-   MFEM_SHARED double sm1[9][Q1D*Q1D*Q1D];
+   constexpr int BFS = 18*Q1D*Q1D*Q1D;
+   double *SM = S + MFEM_BLOCK_ID(x)*BFS;
+   //MFEM_SHARED double sm0[9][Q1D*Q1D*Q1D];
+   double (*sm0)[Q1D*Q1D*Q1D] = (double (*)[Q1D*Q1D*Q1D]) (SM + 0);
+   int offset = 9*Q1D*Q1D*Q1D;
+
+   //MFEM_SHARED double sm1[9][Q1D*Q1D*Q1D];
+   double (*sm1)[Q1D*Q1D*Q1D] = (double (*)[Q1D*Q1D*Q1D]) (SM + offset);
    MFEM_SHARED double BG[2][Q1D*D1D];
 
    double (*DDD)[D1D*D1D*D1D] = (double (*)[D1D*D1D*D1D]) sm0;
@@ -327,6 +353,7 @@ void TMOP_Integrator::AddMultGradPA_3D(const Vector &R, Vector &C) const
       // rs2: Prec Solve Time: 0.315
       // rs3: Prec Solve Time: 2.442
       MFEM_LAUNCH_TMOP_KERNEL(AddMultGradPA_Kernel_3D,id,NE,B,G,J,H,R,C);
+      MFEM_ABORT("Unknown kernel!");
    }
    else
    {
@@ -337,8 +364,6 @@ void TMOP_Integrator::AddMultGradPA_3D(const Vector &R, Vector &C) const
       MFEM_VERIFY(ER, "Not supported!");
       const int *M = ER->GatherMap().Read();
 
-      //MFEM_LAUNCH_TMOP_KERNEL(AddMultGradPA_Kernel_3D_fast,id,ND,NE,M,B,G,J,H,R,C);
-
       constexpr int DIM = 3;
       const auto m = Reshape(M, D1D,D1D,D1D, NE);
       const auto b = Reshape(B.Read(), Q1D,D1D);
@@ -348,25 +373,35 @@ void TMOP_Integrator::AddMultGradPA_3D(const Vector &R, Vector &C) const
       const auto x = Reshape(R.Read(), ND,DIM);
       auto y = Reshape(C.ReadWrite(), ND,DIM);
 
+      constexpr int NSM = 80;
+      const int BFS = 18*Q1D*Q1D*Q1D;
+      static Vector smem;
+      smem.SetSize(NSM*BFS);
+      smem.UseDevice(true);
+      auto s = smem.Write();
+
       void (*Ker)(const int NE,
                   const DeviceTensor<4,const int> M,
                   const DeviceTensor<2,const double> B,
                   const DeviceTensor<2,const double> G,
                   const DeviceTensor<6,const double> J,
                   const DeviceTensor<8,const double> H,
+                  double *S,
                   const ConstDeviceMatrix XD,
                   DeviceMatrix YD) = nullptr;
 
-      constexpr int NBK = 0; // best if 0
-
       switch (id) // orders 1~6
       {
-         case 0x36: Ker = AMGPA<3,6,NBK>; break;
-         case 0x46: Ker = AMGPA<4,6,NBK>; break;
-         default: MFEM_ABORT("Unknown kernel 0x" << std::hex << id);
+         case 0x23: Ker = AMGPA<2,3>; break;
+         case 0x34: Ker = AMGPA<3,4>; break;
+         case 0x45: Ker = AMGPA<4,5>; break;
+         case 0x56: Ker = AMGPA<5,6>; break;
+         case 0x78: Ker = AMGPA<7,8>; break;
+         case 0x9A: Ker = AMGPA<9,10>; break;
+         default: MFEM_ABORT("Unknown kernel 0x" << std::hex << id << std::dec);
       }
 
-      MFEM_LAUNCH_KERNEL(Ker,NE,dim3(Q1D,Q1D,Q1D),0)(NE,m,b,g,j,h,x,y);
+      MFEM_LAUNCH_KERNEL(Ker,NSM,dim3(Q1D,Q1D,Q1D),0)(NE,m,b,g,j,h,s,x,y);
       MFEM_DEVICE_SYNC;
    }
 }

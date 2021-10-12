@@ -95,6 +95,30 @@ MFEM_HOST_DEVICE inline void LoadBG(const int D1D, const int Q1D,
    MFEM_SYNC_THREAD;
 }
 
+template<int MD1, int MQ1>
+MFEM_HOST_DEVICE inline void LoadBGs(const int D1D, const int Q1D,
+                                     const ConstDeviceMatrix &b,
+                                     const ConstDeviceMatrix &g,
+                                     double (*sBG)[MQ1*MD1])
+{
+   const int tidz = MFEM_THREAD_ID(z);
+   DeviceMatrix B(sBG[0], D1D, Q1D);
+   DeviceMatrix G(sBG[1], D1D, Q1D);
+
+   if (tidz == 0)
+   {
+      MFEM_FOREACH_THREAD(d,y,D1D)
+      {
+         MFEM_FOREACH_THREAD(q,x,Q1D)
+         {
+            B(d,q) = b(q,d);
+            G(d,q) = g(q,d);
+         }
+      }
+   }
+   MFEM_SYNC_THREAD;
+}
+
 /// Load Bt1d & Gt1d matrices into shared memory
 template<int MD1, int MQ1>
 MFEM_HOST_DEVICE inline void LoadBGt(const int D1D, const int Q1D,

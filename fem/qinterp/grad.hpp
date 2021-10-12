@@ -161,7 +161,14 @@ static void Derivatives3D(const int NE,
             Reshape(y_, Q1D, Q1D, Q1D, VDIM, 3, NE):
             Reshape(y_, VDIM, 3, Q1D, Q1D, Q1D, NE);
 
-   MFEM_FORALL_3D(e, NE, Q1D, Q1D, Q1D,
+   constexpr int NSM = 80;
+   constexpr int BFS = 6*Q1D*Q1D*Q1D;
+   static Vector smem;
+   smem.SetSize(NSM*BFS);
+   smem.UseDevice(true);
+   auto S = smem.Write();
+
+   MFEM_FORALL_3D_GRID(e, NE, Q1D, Q1D, 4, NSM,
    {
       const int D1D = T_D1D ? T_D1D : d1d;
       const int Q1D = T_Q1D ? T_Q1D : q1d;
@@ -174,8 +181,13 @@ static void Derivatives3D(const int NE,
       DeviceMatrix B(BG[0], D1D, Q1D);
       DeviceMatrix G(BG[1], D1D, Q1D);
 
-      MFEM_SHARED double sm0[3][MQ1*MQ1*MQ1];
-      MFEM_SHARED double sm1[3][MQ1*MQ1*MQ1];
+      double *SM = S + MFEM_BLOCK_ID(x)*BFS;
+
+      //MFEM_SHARED double sm0[3][MQ1*MQ1*MQ1];
+      double (*sm0)[MQ1*MQ1*MQ1] = (double (*)[MQ1*MQ1*MQ1]) (SM);
+      //MFEM_SHARED double sm1[3][MQ1*MQ1*MQ1];
+      double (*sm1)[MQ1*MQ1*MQ1] = (double (*)[MQ1*MQ1*MQ1]) (SM+3*MQ1*MQ1*MQ1);
+
       DeviceTensor<3> X(sm0[2], D1D, D1D, D1D);
       DeviceTensor<3> DDQ0(sm0[0], D1D, D1D, Q1D);
       DeviceTensor<3> DDQ1(sm0[1], D1D, D1D, Q1D);

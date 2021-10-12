@@ -32,6 +32,26 @@ const int MAX_D1D = 14;
 const int MAX_Q1D = 14;
 #endif
 
+
+static MFEM_DEVICE double smem[0x40000];
+
+template <bool GLOBAL = false, typename T = double>
+struct SMEM
+{
+   MFEM_DEVICE inline operator T *() noexcept
+   {
+      static MFEM_SHARED T smem_l[0x1800];
+      return GLOBAL ? (T*)mfem::smem : (T*)smem_l;
+   }
+
+   template<typename U> static MFEM_DEVICE inline
+   U *alloc(U* &smem, size_t size) noexcept
+   {
+      U* base = smem;
+      return (smem += size, base);
+   }
+};
+
 // MFEM pragma macros that can be used inside MFEM_FORALL macros.
 #define MFEM_PRAGMA(X) _Pragma(#X)
 

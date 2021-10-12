@@ -151,6 +151,9 @@ typedef DeviceTensor<2,const double> ConstDeviceMatrix;
 typedef DeviceTensor<3,double> DeviceCube;
 typedef DeviceTensor<3,const double> ConstDeviceCube;
 
+typedef DeviceTensor<4,double> DeviceHyperCube;
+typedef DeviceTensor<4,const double> ConstDeviceHyperCube;
+
 } // mfem namespace
 
 #endif // MFEM_DTENSOR

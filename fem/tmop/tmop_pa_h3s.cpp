@@ -265,7 +265,8 @@ MFEM_REGISTER_TMOP_KERNELS(void, SetupGradPA_3D,
    smem.UseDevice(true);
    auto S = smem.Write();
 
-   MFEM_FORALL_3D_GRID(e, NE, Q1D, Q1D, 4, NSM,
+#warning HO GRID @ Q1Dx4x4
+   MFEM_FORALL_3D_GRID(e, NE, Q1D, 4, 4, NSM,
    {
       const int D1D = T_D1D ? T_D1D : d1d;
       const int Q1D = T_Q1D ? T_Q1D : q1d;

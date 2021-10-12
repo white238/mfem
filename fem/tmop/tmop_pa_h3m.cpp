@@ -401,7 +401,8 @@ void TMOP_Integrator::AddMultGradPA_3D(const Vector &R, Vector &C) const
          default: MFEM_ABORT("Unknown kernel 0x" << std::hex << id << std::dec);
       }
 
-      MFEM_LAUNCH_KERNEL(Ker,NSM,dim3(Q1D,Q1D,Q1D),0)(NE,m,b,g,j,h,s,x,y);
+#pragma message("HO GRID @ Q1Dx4x4")
+      MFEM_LAUNCH_KERNEL(Ker,NSM,dim3(Q1D,4,4),0)(NE,m,b,g,j,h,s,x,y);
       MFEM_DEVICE_SYNC;
    }
 }

@@ -321,11 +321,7 @@ const
    {
       X.SetSpace(pfes);
       Y.SetSpace(pfes);
-   }
-
-   if (Ytmp.ParFESpace() != pfes)
-   {
-     Ytmp.SetSpace(pfes);
+      Ytmp.SetSize(pfes->GetTrueVSize());
    }
 
    X.Distribute(&x);
@@ -335,12 +331,11 @@ const
    }
    else
    {
-     MFEM_VERIFY(interior_face_integs.Size() == 0,
-                 "the case of interior face integrators is not"
-                 " implemented");
+      MFEM_VERIFY(interior_face_integs.Size() == 0,
+                  "the case of interior face integrators is not"
+                  " implemented");
       mat->Mult(X, Y);
    }
-   //pfes->Dof_TrueDof_Matrix()->MultTranspose(a, Y, 1.0, y);
    pfes->GetProlongationMatrix()->MultTranspose(Y, Ytmp);
    y.Add(a,Ytmp);
 }

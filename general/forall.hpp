@@ -159,7 +159,7 @@ void RajaCuWrap2D(const int N, DBODY &&d_body,
    using RAJA::RangeSegment;
 
    launch<cuda_launch_policy>
-   (DEVICE, Resources(Teams(G), Threads(X, Y, BZ)),
+   (DEVICE, Grid(Teams(G), Threads(X, Y, BZ)),
     [=] RAJA_DEVICE (LaunchContext ctx)
    {
 
@@ -192,7 +192,7 @@ void RajaCuWrap3D(const int N, DBODY &&d_body,
    using RAJA::RangeSegment;
 
    launch<cuda_launch_policy>
-   (DEVICE, Resources(Teams(GRID), Threads(X, Y, Z)),
+   (DEVICE, Grid(Teams(GRID), Threads(X, Y, Z)),
     [=] RAJA_DEVICE (LaunchContext ctx)
    {
 
@@ -225,7 +225,7 @@ void RajaHipWrap2D(const int N, DBODY &&d_body,
    using RAJA::RangeSegment;
 
    launch<hip_launch_policy>
-   (DEVICE, Resources(Teams(G), Threads(X, Y, BZ)),
+   (DEVICE, Grid(Teams(G), Threads(X, Y, BZ)),
     [=] RAJA_DEVICE (LaunchContext ctx)
    {
 
@@ -258,7 +258,7 @@ void RajaHipWrap3D(const int N, DBODY &&d_body,
    using RAJA::RangeSegment;
 
    launch<hip_launch_policy>
-   (DEVICE, Resources(Teams(GRID), Threads(X, Y, Z)),
+   (DEVICE, Grid(Teams(GRID), Threads(X, Y, Z)),
     [=] RAJA_DEVICE (LaunchContext ctx)
    {
 

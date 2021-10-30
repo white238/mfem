@@ -40,6 +40,16 @@ void NDK_AMD_PAMassApply(const int dim,
                          const Vector &X,
                          Vector &Y);
 
+void NDK_HIP_PAMassApply(const int dim,
+                         const int D1D,
+                         const int Q1D,
+                         const int NE,
+                         const FiniteElementSpace *fes,
+                         const DofToQuad *maps,
+                         const Vector &D,
+                         const Vector &X,
+                         Vector &Y);
+
 // PA Mass Integrator
 
 // PA Mass Assemble kernel
@@ -1059,12 +1069,27 @@ static void PAMassApply(const int dim,
    {
       const int ver = Device::KernelsVersion();
       const int id = (ver << 8) | (D1D << 4) | Q1D;
-      //static int ini = 0;
-      //if (!ini++) { printf("\033[33mkernel #0x%x\033[m\n",id); }
+
+      static int ini = 0;
+      if (!ini++) { printf("\033[33mkernel #0x%x\033[m\n",id); }
+
       switch (id)
       {
+         case 0x123: return SmemPAMassApply3D_v1<2,3>(NE,B,Bt,D,X,Y);
+         case 0x124: return SmemPAMassApply3D_v1<2,4>(NE,B,Bt,D,X,Y);
+         case 0x134: return SmemPAMassApply3D_v1<3,4>(NE,B,Bt,D,X,Y);
+         case 0x136: return SmemPAMassApply3D_v1<3,6>(NE,B,Bt,D,X,Y);
+         case 0x145: return SmemPAMassApply3D_v1<4,5>(NE,B,Bt,D,X,Y);
+         case 0x148: return SmemPAMassApply3D_v1<4,8>(NE,B,Bt,D,X,Y);
+         case 0x156: return SmemPAMassApply3D_v1<5,6>(NE,B,Bt,D,X,Y);
+         case 0x158: return SmemPAMassApply3D_v1<5,8>(NE,B,Bt,D,X,Y);
+         case 0x167: return SmemPAMassApply3D_v1<6,7>(NE,B,Bt,D,X,Y);
+         case 0x178: return SmemPAMassApply3D_v1<7,8>(NE,B,Bt,D,X,Y);
+
+         case 0x022: return SmemPAMassApply3D<2,2>(NE,B,Bt,D,X,Y);
          case 0x023: return SmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
          case 0x024: return SmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
+         case 0x026: return SmemPAMassApply3D<2,6>(NE,B,Bt,D,X,Y);
          case 0x034: return SmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
          case 0x035: return SmemPAMassApply3D<3,5>(NE,B,Bt,D,X,Y);
          case 0x036: return SmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
@@ -1078,19 +1103,8 @@ static void PAMassApply(const int dim,
          case 0x078: return SmemPAMassApply3D<7,8>(NE,B,Bt,D,X,Y);
          case 0x089: return SmemPAMassApply3D<8,9>(NE,B,Bt,D,X,Y);
          case 0x09A: return SmemPAMassApply3D<9,10>(NE,B,Bt,D,X,Y);
-
-         case 0x123: return SmemPAMassApply3D_v1<2,3>(NE,B,Bt,D,X,Y);
-         case 0x124: return SmemPAMassApply3D_v1<2,4>(NE,B,Bt,D,X,Y);
-         case 0x134: return SmemPAMassApply3D_v1<3,4>(NE,B,Bt,D,X,Y);
-         case 0x136: return SmemPAMassApply3D_v1<3,6>(NE,B,Bt,D,X,Y);
-         case 0x145: return SmemPAMassApply3D_v1<4,5>(NE,B,Bt,D,X,Y);
-         case 0x148: return SmemPAMassApply3D_v1<4,8>(NE,B,Bt,D,X,Y);
-         case 0x156: return SmemPAMassApply3D_v1<5,6>(NE,B,Bt,D,X,Y);
-         case 0x158: return SmemPAMassApply3D_v1<5,8>(NE,B,Bt,D,X,Y);
-         case 0x167: return SmemPAMassApply3D_v1<6,7>(NE,B,Bt,D,X,Y);
-         case 0x178: return SmemPAMassApply3D_v1<7,8>(NE,B,Bt,D,X,Y);
-
-         default:   break;//return PAMassApply3D(NE,B,Bt,D,X,Y,D1D,Q1D);
+            
+         default:   break; //return PAMassApply3D(NE,B,Bt,D,X,Y,D1D,Q1D);
       }
    }
    MFEM_ABORT("Unknown kernel 0x" << std::hex << id);
@@ -1105,13 +1119,25 @@ void MassIntegrator::AddMultPA(const Vector &x, Vector &y) const
    else if (Device::FastKernelsEnabled())
    {
       const int version = Device::KernelsVersion();
-      MFEM_VERIFY(version < 4, "Unsupported version!");
-      if (version == 3)
+      MFEM_VERIFY(version < 4 || version==7, "Unsupported version!");
+      if (version == 3) // AMD
       {
          NDK_AMD_PAMassApply(dim, dofs1D, quad1D, ne,
                              fespace, maps,
                              pa_data, x, y);
       }
+      // 4 E-vector
+      // 5 fused
+      // 6 MMA
+      else if (version == 7) // HIP
+      {
+         NDK_HIP_PAMassApply(dim, dofs1D, quad1D, ne,
+                             fespace, maps,
+                             pa_data, x, y);
+      }
+      // 0 legacy
+      // 1 fast
+      // 2 libP
       else
       {
          NDK_PAMassApply(dim, dofs1D, quad1D, ne,

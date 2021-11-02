@@ -393,8 +393,8 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
 
    const auto Q = Reshape(Q_.Read(),(dim*(dim+1))/2,nv,pow(order,dim),nel_ho);
 
-   MFEM_FORALL(iel_ho, nel_ho,
    // for (int iel_ho=0; iel_ho<nel_ho; ++iel_ho)
+   MFEM_FORALL(iel_ho, nel_ho,
    {
       // Assemble a sparse matrix over the macro-element by looping over each
       // subelement.
@@ -608,8 +608,8 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
             }
          }
       }
-   // }
    });
+   // }
 }
 
 void AssembleBatchedLOR(BilinearForm &form_lor, FiniteElementSpace &fes_ho,

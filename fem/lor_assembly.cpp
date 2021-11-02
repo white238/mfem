@@ -210,28 +210,16 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
 {
    const int nel_ho = mesh_ho.GetNE();
    const int nel_lor = mesh_lor.GetNE();
-   const int dim = mesh_ho.Dimension();
 
+   static constexpr int dim = 3;
+   static constexpr int nv = 8;
    static constexpr int nd1d = order + 1;
    static constexpr int ndof_per_el = nd1d*nd1d*nd1d;
    static constexpr int nnz_per_row = 27;
    static constexpr int nnz_per_el = nnz_per_row*ndof_per_el;
 
-   IntegrationRules irs(0, Quadrature1D::GaussLobatto);
-   const IntegrationRule &ir = irs.Get(mesh_lor.GetElementGeometry(0), 1);
-   const int nq = ir.Size();
-
-   Array<int> lor2ho(nel_lor), lor2ref(nel_lor);
-   {
-      const CoarseFineTransformations &cf_tr = mesh_lor.GetRefinementTransforms();
-      for (int iel_lor=0; iel_lor<mesh_lor.GetNE(); ++iel_lor)
-      {
-         lor2ho[iel_lor] = cf_tr.embeddings[iel_lor].parent;
-         lor2ref[iel_lor] = cf_tr.embeddings[iel_lor].matrix;
-      }
-   }
-
-   Array<int> el_dof_lex_(nel_ho*ndof_per_el);
+   // Set up element to dof mapping (in lexicographic ordering)
+   Array<int> el_dof_lex_(ndof_per_el*nel_ho);
    {
       Array<int> dofs;
       const Array<int> &lex_map = dynamic_cast<const NodalFiniteElement&>
@@ -245,108 +233,141 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          }
       }
    }
-   auto el_dof_lex = Reshape(el_dof_lex_.Read(), ndof_per_el, nel_ho);
 
-   Array<double> Q_(nel_ho*pow(order,dim)*nq*(dim*(dim+1))/2);
-   auto Q = Reshape(Q_.Write(), (dim*(dim+1))/2, nq, pow(order,dim),
-                    nel_ho);
+   Array<double> Q_(nel_ho*pow(order,dim)*nv*(dim*(dim+1))/2);
 
-   for (int iel_lor=0; iel_lor<mesh_lor.GetNE(); ++iel_lor)
+   // Compute geometric factors at quadrature points
    {
-      int iel_ho = lor2ho[iel_lor];
-      int iref = lor2ref[iel_lor];
+      IntegrationRules irs(0, Quadrature1D::GaussLobatto);
+      const IntegrationRule &ir = irs.Get(mesh_lor.GetElementGeometry(0), 1);
+      const int nq = ir.Size();
 
-      Array<int> v;
-      mesh_lor.GetElementVertices(iel_lor, v);
-
-      double *v0 = mesh_lor.GetVertex(v[0]);
-      double *v1 = mesh_lor.GetVertex(v[1]);
-      double *v2 = mesh_lor.GetVertex(v[2]);
-      double *v3 = mesh_lor.GetVertex(v[3]);
-      double *v4 = mesh_lor.GetVertex(v[4]);
-      double *v5 = mesh_lor.GetVertex(v[5]);
-      double *v6 = mesh_lor.GetVertex(v[6]);
-      double *v7 = mesh_lor.GetVertex(v[7]);
-
-      for (int iq=0; iq<nq; ++iq)
+      Array<int> lor2ho_(nel_lor), lor2ref_(nel_lor);
       {
-         const double x = ir[iq].x;
-         const double y = ir[iq].y;
-         const double z = ir[iq].z;
-
-         // c: (1-x)(1-y)(1-z)v0[c] + x (1-y)(1-z)v1[c] + x y (1-z)v2[c] + (1-x) y (1-z)v3[c]
-         //  + (1-x)(1-y) z   v4[c] + x (1-y) z   v5[c] + x y z    v6[c] + (1-x) y z    v7[c]
-         const double J11 = -(1-y)*(1-z)*v0[0] + (1-y)*(1-z)*v1[0] + y*(1-z)*v2[0] - y*
-                            (1-z)*v3[0]
-                            - (1-y)*z*v4[0] + (1-y)*z*v5[0] + y*z*v6[0] - y*z*v7[0];
-         const double J12 = -(1-x)*(1-z)*v0[0] - x*(1-z)*v1[0] + x*(1-z)*v2[0] + (1-x)*
-                            (1-z)*v3[0]
-                            - (1-x)*z*v4[0] - x*z*v5[0] + x*z*v6[0] + (1-x)*z*v7[0];
-         const double J13 = -(1-x)*(1-y)*v0[0] - x*(1-y)*v1[0] - x*y*v2[0] -
-                            (1-x)*y*v3[0]
-                            + (1-x)*(1-y)*v4[0] + x*(1-y)*v5[0] + x*y*v6[0] + (1-x)*y*v7[0];
-
-         const double J21 = -(1-y)*(1-z)*v0[1] + (1-y)*(1-z)*v1[1] + y*(1-z)*v2[1] - y*
-                            (1-z)*v3[1]
-                            - (1-y)*z*v4[1] + (1-y)*z*v5[1] + y*z*v6[1] - y*z*v7[1];
-         const double J22 = -(1-x)*(1-z)*v0[1] - x*(1-z)*v1[1] + x*(1-z)*v2[1] + (1-x)*
-                            (1-z)*v3[1]
-                            - (1-x)*z*v4[1] - x*z*v5[1] + x*z*v6[1] + (1-x)*z*v7[1];
-         const double J23 = -(1-x)*(1-y)*v0[1] - x*(1-y)*v1[1] - x*y*v2[1] -
-                            (1-x)*y*v3[1]
-                            + (1-x)*(1-y)*v4[1] + x*(1-y)*v5[1] + x*y*v6[1] + (1-x)*y*v7[1];
-
-         const double J31 = -(1-y)*(1-z)*v0[2] + (1-y)*(1-z)*v1[2] + y*(1-z)*v2[2] - y*
-                            (1-z)*v3[2]
-                            - (1-y)*z*v4[2] + (1-y)*z*v5[2] + y*z*v6[2] - y*z*v7[2];
-         const double J32 = -(1-x)*(1-z)*v0[2] - x*(1-z)*v1[2] + x*(1-z)*v2[2] + (1-x)*
-                            (1-z)*v3[2]
-                            - (1-x)*z*v4[2] - x*z*v5[2] + x*z*v6[2] + (1-x)*z*v7[2];
-         const double J33 = -(1-x)*(1-y)*v0[2] - x*(1-y)*v1[2] - x*y*v2[2] -
-                            (1-x)*y*v3[2]
-                            + (1-x)*(1-y)*v4[2] + x*(1-y)*v5[2] + x*y*v6[2] + (1-x)*y*v7[2];
-
-         const double detJ = J11 * (J22 * J33 - J32 * J23) -
-                             J21 * (J12 * J33 - J32 * J13) +
-                             J31 * (J12 * J23 - J22 * J13);
-         const double w_detJ = ir[iq].weight / detJ;
-         // adj(J)
-         const double A11 = (J22 * J33) - (J23 * J32);
-         const double A12 = (J32 * J13) - (J12 * J33);
-         const double A13 = (J12 * J23) - (J22 * J13);
-         const double A21 = (J31 * J23) - (J21 * J33);
-         const double A22 = (J11 * J33) - (J13 * J31);
-         const double A23 = (J21 * J13) - (J11 * J23);
-         const double A31 = (J21 * J32) - (J31 * J22);
-         const double A32 = (J31 * J12) - (J11 * J32);
-         const double A33 = (J11 * J22) - (J12 * J21);
-
-         int iqx = iq%2;
-         int iqy = (iq/2)%2;
-         int iqz = (iq/2)/2;
-
-         // Put these in the opposite order...
-         int iq2 = iqz + 2*iqy + 4*iqx;
-
-         Q(0,iq2,iref,iel_ho) = w_detJ * (A11*A11 + A12*A12 + A13*A13); // 1,1
-         Q(1,iq2,iref,iel_ho) = w_detJ * (A11*A21 + A12*A22 + A13*A23); // 2,1
-         Q(2,iq2,iref,iel_ho) = w_detJ * (A11*A31 + A12*A32 + A13*A33); // 3,1
-         Q(3,iq2,iref,iel_ho) = w_detJ * (A21*A21 + A22*A22 + A23*A23); // 2,2
-         Q(4,iq2,iref,iel_ho) = w_detJ * (A21*A31 + A22*A32 + A23*A33); // 3,2
-         Q(5,iq2,iref,iel_ho) = w_detJ * (A31*A31 + A32*A32 + A33*A33); // 3,3
+         const CoarseFineTransformations &cf_tr = mesh_lor.GetRefinementTransforms();
+         for (int iel_lor=0; iel_lor<nel_lor; ++iel_lor)
+         {
+            lor2ho_[iel_lor] = cf_tr.embeddings[iel_lor].parent;
+            lor2ref_[iel_lor] = cf_tr.embeddings[iel_lor].matrix;
+         }
       }
+
+      Vector el_vert_(dim*nv*nel_lor);
+      for (int iel_lor=0; iel_lor<nel_lor; ++iel_lor)
+      {
+         Array<int> v;
+         mesh_lor.GetElementVertices(iel_lor, v);
+         for (int iv=0; iv<nv; ++iv)
+         {
+            const double *vc = mesh_lor.GetVertex(v[iv]);
+            for (int d=0; d<dim; ++d)
+            {
+               el_vert_[d + iv*dim + iel_lor*nv*dim] = vc[d];
+            }
+         }
+      }
+
+      auto el_vert = Reshape(el_vert_.Read(), dim, nv, nel_lor);
+      auto lor2ho = lor2ho_.Read();
+      auto lor2ref = lor2ref_.Read();
+      auto Q = Reshape(Q_.Write(),(dim*(dim+1))/2,nv,pow(order,dim),nel_ho);
+
+      MFEM_FORALL(iel_lor, nel_lor,
+      {
+         const int iel_ho = lor2ho[iel_lor];
+         const int iref = lor2ref[iel_lor];
+
+         const double *v0 = &el_vert(0, 0, iel_lor);
+         const double *v1 = &el_vert(0, 1, iel_lor);
+         const double *v2 = &el_vert(0, 2, iel_lor);
+         const double *v3 = &el_vert(0, 3, iel_lor);
+         const double *v4 = &el_vert(0, 4, iel_lor);
+         const double *v5 = &el_vert(0, 5, iel_lor);
+         const double *v6 = &el_vert(0, 6, iel_lor);
+         const double *v7 = &el_vert(0, 7, iel_lor);
+
+         for (int iq=0; iq<nq; ++iq)
+         {
+            const double x = ir[iq].x;
+            const double y = ir[iq].y;
+            const double z = ir[iq].z;
+
+            // c: (1-x)(1-y)(1-z)v0[c] + x (1-y)(1-z)v1[c] + x y (1-z)v2[c] + (1-x) y (1-z)v3[c]
+            //  + (1-x)(1-y) z   v4[c] + x (1-y) z   v5[c] + x y z    v6[c] + (1-x) y z    v7[c]
+            const double J11 =
+            -(1-y)*(1-z)*v0[0] + (1-y)*(1-z)*v1[0] + y*(1-z)*v2[0] - y*
+            (1-z)*v3[0]
+            - (1-y)*z*v4[0] + (1-y)*z*v5[0] + y*z*v6[0] - y*z*v7[0];
+            const double J12
+            = -(1-x)*(1-z)*v0[0] - x*(1-z)*v1[0] + x*(1-z)*v2[0] + (1-x)*
+            (1-z)*v3[0]
+            - (1-x)*z*v4[0] - x*z*v5[0] + x*z*v6[0] + (1-x)*z*v7[0];
+            const double J13
+            = -(1-x)*(1-y)*v0[0] - x*(1-y)*v1[0] - x*y*v2[0] -
+            (1-x)*y*v3[0]
+            + (1-x)*(1-y)*v4[0] + x*(1-y)*v5[0] + x*y*v6[0] + (1-x)*y*v7[0];
+
+            const double J21
+            = -(1-y)*(1-z)*v0[1] + (1-y)*(1-z)*v1[1] + y*(1-z)*v2[1] - y*
+            (1-z)*v3[1]
+            - (1-y)*z*v4[1] + (1-y)*z*v5[1] + y*z*v6[1] - y*z*v7[1];
+            const double J22
+            = -(1-x)*(1-z)*v0[1] - x*(1-z)*v1[1] + x*(1-z)*v2[1] + (1-x)*
+            (1-z)*v3[1]
+            - (1-x)*z*v4[1] - x*z*v5[1] + x*z*v6[1] + (1-x)*z*v7[1];
+            const double J23
+            = -(1-x)*(1-y)*v0[1] - x*(1-y)*v1[1] - x*y*v2[1] -
+            (1-x)*y*v3[1]
+            + (1-x)*(1-y)*v4[1] + x*(1-y)*v5[1] + x*y*v6[1] + (1-x)*y*v7[1];
+
+            const double J31
+            = -(1-y)*(1-z)*v0[2] + (1-y)*(1-z)*v1[2] + y*(1-z)*v2[2] - y*
+            (1-z)*v3[2]
+            - (1-y)*z*v4[2] + (1-y)*z*v5[2] + y*z*v6[2] - y*z*v7[2];
+            const double J32
+            = -(1-x)*(1-z)*v0[2] - x*(1-z)*v1[2] + x*(1-z)*v2[2] + (1-x)*
+            (1-z)*v3[2]
+            - (1-x)*z*v4[2] - x*z*v5[2] + x*z*v6[2] + (1-x)*z*v7[2];
+            const double J33
+            = -(1-x)*(1-y)*v0[2] - x*(1-y)*v1[2] - x*y*v2[2] -
+            (1-x)*y*v3[2]
+            + (1-x)*(1-y)*v4[2] + x*(1-y)*v5[2] + x*y*v6[2] + (1-x)*y*v7[2];
+
+            const double detJ = J11 * (J22 * J33 - J32 * J23) -
+            J21 * (J12 * J33 - J32 * J13) +
+            J31 * (J12 * J23 - J22 * J13);
+            const double w_detJ = ir[iq].weight / detJ;
+            // adj(J)
+            const double A11 = (J22 * J33) - (J23 * J32);
+            const double A12 = (J32 * J13) - (J12 * J33);
+            const double A13 = (J12 * J23) - (J22 * J13);
+            const double A21 = (J31 * J23) - (J21 * J33);
+            const double A22 = (J11 * J33) - (J13 * J31);
+            const double A23 = (J21 * J13) - (J11 * J23);
+            const double A31 = (J21 * J32) - (J31 * J22);
+            const double A32 = (J31 * J12) - (J11 * J32);
+            const double A33 = (J11 * J22) - (J12 * J21);
+
+            const int iqx = iq%2;
+            const int iqy = (iq/2)%2;
+            const int iqz = (iq/2)/2;
+
+            // Put these in the opposite order...
+            const int iq2 = iqz + 2*iqy + 4*iqx;
+
+            Q(0,iq2,iref,iel_ho) = w_detJ * (A11*A11 + A12*A12 + A13*A13); // 1,1
+            Q(1,iq2,iref,iel_ho) = w_detJ * (A11*A21 + A12*A22 + A13*A23); // 2,1
+            Q(2,iq2,iref,iel_ho) = w_detJ * (A11*A31 + A12*A32 + A13*A33); // 3,1
+            Q(3,iq2,iref,iel_ho) = w_detJ * (A21*A21 + A22*A22 + A23*A23); // 2,2
+            Q(4,iq2,iref,iel_ho) = w_detJ * (A21*A31 + A22*A32 + A23*A33); // 3,2
+            Q(5,iq2,iref,iel_ho) = w_detJ * (A31*A31 + A32*A32 + A33*A33); // 3,3
+         }
+      });
    }
 
    Vector V_(nnz_per_el, MemoryType::DEVICE);
-   auto V = Reshape(V_.Write(), nnz_per_row, ndof_per_el);
-
-   auto I = A_mat.ReadI();
-   auto J = A_mat.ReadJ();
-   auto A = A_mat.ReadWriteData();
-
    Array<int> col_ptr_;
    col_ptr_.SetSize(A_mat.Height(), MemoryType::DEVICE);
-   auto col_ptr = Reshape(col_ptr_.Write(), A_mat.Height());
 
    static constexpr int sz_grad_A = 3*3*2*2*2*2;
    static constexpr int sz_grad_B = sz_grad_A*2;
@@ -355,9 +376,20 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
    Vector grad_B_(sz_grad_B, MemoryType::DEVICE);
    Vector local_mat_(sz_local_mat, MemoryType::DEVICE);
 
+   auto V = Reshape(V_.Write(), nnz_per_row, ndof_per_el);
+
+   auto I = A_mat.ReadI();
+   auto J = A_mat.ReadJ();
+   auto A = A_mat.ReadWriteData();
+
+   auto el_dof_lex = Reshape(el_dof_lex_.Read(), ndof_per_el, nel_ho);
+   auto col_ptr = Reshape(col_ptr_.Write(), A_mat.Height());
+
    auto grad_A = Reshape(grad_A_.Write(), 3, 3, 2, 2, 2, 2);
    auto grad_B = Reshape(grad_B_.Write(), 3, 3, 2, 2, 2, 2, 2);
    auto local_mat = Reshape(local_mat_.Write(), 8, 8);
+
+   auto Q = Reshape(Q_.Read(),(dim*(dim+1))/2,nv,pow(order,dim),nel_ho);
 
    MFEM_FORALL(iel_ho, nel_ho,
    {
@@ -519,8 +551,6 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                      int jx = jj_loc%2;
                      int jy = (jj_loc/2)%2;
                      int jz = jj_loc/2/2;
-                     int jj_el = (jx+kx) + (jy+ky)*nd1d + (jz+kz)*nd1d*nd1d;
-
                      int jj_off = (jx-ix+1) + 3*(jy-iy+1) + 9*(jz-iz+1);
 
                      if (jj_loc <= ii_loc)

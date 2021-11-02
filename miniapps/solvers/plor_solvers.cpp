@@ -90,13 +90,13 @@ int main(int argc, char *argv[])
                   "FE type. h for H1, n for Hcurl, r for Hdiv, l for L2");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
-                  "Enable or disable GLVis visualization.");
+                  "Enable or disable visualization output.");
    args.AddOption(&device_config, "-d", "--device",
                   "Device configuration string, see Device::Configure().");
    args.ParseCheck();
 
    Device device(device_config);
-   device.Print();
+   if (mpi.Root()) { device.Print(); }
 
    bool H1 = false, ND = false, RT = false, L2 = false;
    if (string(fe) == "h") { H1 = true; }

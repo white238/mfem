@@ -208,13 +208,18 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                           FiniteElementSpace &fes_ho,
                           SparseMatrix &A_mat)
 {
-   int nel_ho = mesh_ho.GetNE();
-   int nel_lor = mesh_lor.GetNE();
-   int dim = mesh_ho.Dimension();
+   const int nel_ho = mesh_ho.GetNE();
+   const int nel_lor = mesh_lor.GetNE();
+   const int dim = mesh_ho.Dimension();
+
+   static constexpr int nd1d = order + 1;
+   static constexpr int ndof_per_el = nd1d*nd1d*nd1d;
+   static constexpr int nnz_per_row = 27;
+   static constexpr int nnz_per_el = nnz_per_row*ndof_per_el;
 
    IntegrationRules irs(0, Quadrature1D::GaussLobatto);
    const IntegrationRule &ir = irs.Get(mesh_lor.GetElementGeometry(0), 1);
-   int nq = ir.Size();
+   const int nq = ir.Size();
 
    Array<int> lor2ho(nel_lor), lor2ref(nel_lor);
    {
@@ -225,6 +230,22 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          lor2ref[iel_lor] = cf_tr.embeddings[iel_lor].matrix;
       }
    }
+
+   Array<int> el_dof_lex_(nel_ho*ndof_per_el);
+   {
+      Array<int> dofs;
+      const Array<int> &lex_map = dynamic_cast<const NodalFiniteElement&>
+                                  (*fes_ho.GetFE(0)).GetLexicographicOrdering();
+      for (int iel_ho=0; iel_ho<nel_ho; ++iel_ho)
+      {
+         fes_ho.GetElementDofs(iel_ho, dofs);
+         for (int i=0; i<ndof_per_el; ++i)
+         {
+            el_dof_lex_[i + iel_ho*ndof_per_el] = dofs[lex_map[i]];
+         }
+      }
+   }
+   auto el_dof_lex = Reshape(el_dof_lex_.Read(), ndof_per_el, nel_ho);
 
    Array<double> Q_(nel_ho*pow(order,dim)*nq*(dim*(dim+1))/2);
    auto Q = Reshape(Q_.Write(), (dim*(dim+1))/2, nq, pow(order,dim),
@@ -316,13 +337,6 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
       }
    }
 
-   static constexpr int nd1d = order + 1;
-   static constexpr int ndof_per_el = nd1d*nd1d*nd1d;
-   static constexpr int nnz_per_row = 27;
-   static constexpr int nnz_per_el = nnz_per_row*ndof_per_el;
-   // The bound above is pessimistic. It doesn't distinguish vertices, edges,
-   // faces, or interiors.
-
    Vector V_(nnz_per_el, MemoryType::DEVICE);
    auto V = Reshape(V_.Write(), nnz_per_row, ndof_per_el);
 
@@ -333,10 +347,6 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
    Array<int> col_ptr_;
    col_ptr_.SetSize(A_mat.Height(), MemoryType::DEVICE);
    auto col_ptr = Reshape(col_ptr_.Write(), A_mat.Height());
-
-   Array<int> dofs;
-   const Array<int> &lex_map = dynamic_cast<const NodalFiniteElement&>
-                               (*fes_ho.GetFE(0)).GetLexicographicOrdering();
 
    static constexpr int sz_grad_A = 3*3*2*2*2*2;
    static constexpr int sz_grad_B = sz_grad_A*2;
@@ -528,14 +538,12 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
       }
 
       // Place the macro-element sparse matrix into the global sparse matrix.
-      Array<int> dofs;
-      fes_ho.GetElementDofs(iel_ho, dofs);
       for (int ii_el=0; ii_el<ndof_per_el; ++ii_el)
       {
          int ix = ii_el%nd1d;
          int iy = (ii_el/nd1d)%nd1d;
          int iz = ii_el/nd1d/nd1d;
-         int ii = dofs[lex_map[ii_el]];
+         int ii = el_dof_lex(ii_el, iel_ho);
 
          // Set column pointer to avoid searching in the row
          for (int j = I[ii], end = I[ii+1]; j < end; j++)
@@ -559,7 +567,7 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                for (int jx=jx_begin; jx<=jx_end; ++jx)
                {
                   int jj_el = jx + jy*nd1d + jz*nd1d*nd1d;
-                  int jj = dofs[lex_map[jj_el]];
+                  int jj = el_dof_lex(jj_el, iel_ho);
                   int jj_off = (jx-ix+1) + 3*(jy-iy+1) + 9*(jz-iz+1);
 
                   A[col_ptr[jj]] += V(jj_off, ii_el);

@@ -286,11 +286,17 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          const double *v6 = &el_vert(0, 6, iel_lor);
          const double *v7 = &el_vert(0, 7, iel_lor);
 
+         MFEM_UNROLL(8)
          for (int iq=0; iq<nq; ++iq)
          {
-            const double x = ir[iq].x;
-            const double y = ir[iq].y;
-            const double z = ir[iq].z;
+            const int iqx = iq%2;
+            const int iqy = (iq/2)%2;
+            const int iqz = (iq/2)/2;
+
+            const double x = iqx;
+            const double y = iqy;
+            const double z = iqz;
+            const double w = 1.0/8.0;
 
             // c: (1-x)(1-y)(1-z)v0[c] + x (1-y)(1-z)v1[c] + x y (1-z)v2[c] + (1-x) y (1-z)v3[c]
             //  + (1-x)(1-y) z   v4[c] + x (1-y) z   v5[c] + x y z    v6[c] + (1-x) y z    v7[c]
@@ -336,7 +342,7 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
             const double detJ = J11 * (J22 * J33 - J32 * J23) -
             J21 * (J12 * J33 - J32 * J13) +
             J31 * (J12 * J23 - J22 * J13);
-            const double w_detJ = ir[iq].weight / detJ;
+            const double w_detJ = w/detJ;
             // adj(J)
             const double A11 = (J22 * J33) - (J23 * J32);
             const double A12 = (J32 * J13) - (J12 * J33);
@@ -347,10 +353,6 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
             const double A31 = (J21 * J32) - (J31 * J22);
             const double A32 = (J31 * J12) - (J11 * J32);
             const double A33 = (J11 * J22) - (J12 * J21);
-
-            const int iqx = iq%2;
-            const int iqy = (iq/2)%2;
-            const int iqz = (iq/2)/2;
 
             // Put these in the opposite order...
             const int iq2 = iqz + 2*iqy + 4*iqx;

@@ -216,15 +216,24 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
    const IntegrationRule &ir = irs.Get(mesh_lor.GetElementGeometry(0), 1);
    int nq = ir.Size();
 
-   const CoarseFineTransformations &cf_tr = mesh_lor.GetRefinementTransforms();
-   Array<double> invJ_data(nel_ho*pow(order,dim)*nq*(dim*(dim+1))/2);
-   auto invJ = Reshape(invJ_data.Write(), (dim*(dim+1))/2, nq, pow(order,dim),
-                       nel_ho);
+   Array<int> lor2ho(nel_lor), lor2ref(nel_lor);
+   {
+      const CoarseFineTransformations &cf_tr = mesh_lor.GetRefinementTransforms();
+      for (int iel_lor=0; iel_lor<mesh_lor.GetNE(); ++iel_lor)
+      {
+         lor2ho[iel_lor] = cf_tr.embeddings[iel_lor].parent;
+         lor2ref[iel_lor] = cf_tr.embeddings[iel_lor].matrix;
+      }
+   }
+
+   Array<double> Q_(nel_ho*pow(order,dim)*nq*(dim*(dim+1))/2);
+   auto Q = Reshape(Q_.Write(), (dim*(dim+1))/2, nq, pow(order,dim),
+                    nel_ho);
 
    for (int iel_lor=0; iel_lor<mesh_lor.GetNE(); ++iel_lor)
    {
-      int iel_ho = cf_tr.embeddings[iel_lor].parent;
-      int iref = cf_tr.embeddings[iel_lor].matrix;
+      int iel_ho = lor2ho[iel_lor];
+      int iref = lor2ref[iel_lor];
 
       Array<int> v;
       mesh_lor.GetElementVertices(iel_lor, v);
@@ -298,49 +307,59 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          // Put these in the opposite order...
          int iq2 = iqz + 2*iqy + 4*iqx;
 
-         invJ(0,iq2,iref,iel_ho) = w_detJ * (A11*A11 + A12*A12 + A13*A13); // 1,1
-         invJ(1,iq2,iref,iel_ho) = w_detJ * (A11*A21 + A12*A22 + A13*A23); // 2,1
-         invJ(2,iq2,iref,iel_ho) = w_detJ * (A11*A31 + A12*A32 + A13*A33); // 3,1
-         invJ(3,iq2,iref,iel_ho) = w_detJ * (A21*A21 + A22*A22 + A23*A23); // 2,2
-         invJ(4,iq2,iref,iel_ho) = w_detJ * (A21*A31 + A22*A32 + A23*A33); // 3,2
-         invJ(5,iq2,iref,iel_ho) = w_detJ * (A31*A31 + A32*A32 + A33*A33); // 3,3
+         Q(0,iq2,iref,iel_ho) = w_detJ * (A11*A11 + A12*A12 + A13*A13); // 1,1
+         Q(1,iq2,iref,iel_ho) = w_detJ * (A11*A21 + A12*A22 + A13*A23); // 2,1
+         Q(2,iq2,iref,iel_ho) = w_detJ * (A11*A31 + A12*A32 + A13*A33); // 3,1
+         Q(3,iq2,iref,iel_ho) = w_detJ * (A21*A21 + A22*A22 + A23*A23); // 2,2
+         Q(4,iq2,iref,iel_ho) = w_detJ * (A21*A31 + A22*A32 + A23*A33); // 3,2
+         Q(5,iq2,iref,iel_ho) = w_detJ * (A31*A31 + A32*A32 + A33*A33); // 3,3
       }
    }
 
-   static constexpr int ndof_per_el = (order+1)*(order+1)*(order+1);
+   static constexpr int nd1d = order + 1;
+   static constexpr int ndof_per_el = nd1d*nd1d*nd1d;
    static constexpr int nnz_per_row = 27;
-   static constexpr int nnz_per_el =
-      nnz_per_row*ndof_per_el; // <-- pessimsistic bound, doesn't distinguish vertices, edges, faces, interiors
-   Array<double> V(nnz_per_el);
+   static constexpr int nnz_per_el = nnz_per_row*ndof_per_el;
+   // The bound above is pessimistic. It doesn't distinguish vertices, edges,
+   // faces, or interiors.
 
-   int nd1d = order + 1;
+   Vector V_(nnz_per_el, MemoryType::DEVICE);
+   auto V = Reshape(V_.Write(), nnz_per_row, ndof_per_el);
+
+   auto I = A_mat.ReadI();
+   auto J = A_mat.ReadJ();
+   auto A = A_mat.ReadWriteData();
+
+   Array<int> col_ptr_;
+   col_ptr_.SetSize(A_mat.Height(), MemoryType::DEVICE);
+   auto col_ptr = Reshape(col_ptr_.Write(), A_mat.Height());
+
    Array<int> dofs;
    const Array<int> &lex_map = dynamic_cast<const NodalFiniteElement&>
                                (*fes_ho.GetFE(0)).GetLexicographicOrdering();
 
    static constexpr int sz_grad_A = 3*3*2*2*2*2;
    static constexpr int sz_grad_B = sz_grad_A*2;
-   static constexpr int sz_grad = sz_grad_B*2;
-   double grad_A_[sz_grad_A];
-   double grad_B_[sz_grad_B];
-   double grad_[sz_grad];
-
-   auto grad_A = Reshape(grad_A_, 3, 3, 2, 2, 2, 2);
-   auto grad_B = Reshape(grad_B_, 3, 3, 2, 2, 2, 2, 2);
-   auto grad   = Reshape(grad_,   3, 3, 2, 2, 2, 2, 2, 2);
-
    static constexpr int sz_local_mat = 8*8;
-   double local_mat_[sz_local_mat];
-   auto local_mat = Reshape(local_mat_, 8, 8);
+   Vector grad_A_(sz_grad_A, MemoryType::DEVICE);
+   Vector grad_B_(sz_grad_B, MemoryType::DEVICE);
+   Vector local_mat_(sz_local_mat, MemoryType::DEVICE);
 
-   for (int iel_ho=0; iel_ho<nel_ho; ++iel_ho)
+   auto grad_A = Reshape(grad_A_.Write(), 3, 3, 2, 2, 2, 2);
+   auto grad_B = Reshape(grad_B_.Write(), 3, 3, 2, 2, 2, 2, 2);
+   auto local_mat = Reshape(local_mat_.Write(), 8, 8);
+
+   MFEM_FORALL(iel_ho, nel_ho,
    {
+      // Assemble a sparse matrix over the macro-element by looping over each
+      // subelement.
+      //
+      // V(j,i) stores the jth nonzero in the ith row of the sparse matrix.
       for (int i=0; i<nnz_per_el; ++i)
       {
          V[i] = 0.0;
       }
 
-      // Loop over sub-elements
       for (int kz=0; kz<order; ++kz)
       {
          for (int ky=0; ky<order; ++ky)
@@ -348,10 +367,13 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
             for (int kx=0; kx<order; ++kx)
             {
                double k = kx + ky*order + kz*order*order;
+               // local_mat is the local (dense) stiffness matrix
                for (int i=0; i<sz_local_mat; ++i)
                {
                   local_mat[i] = 0.0;
                }
+               // Intermediate quantities (see e.g. Mora and Demkowicz for
+               // notation).
                for (int i=0; i<sz_grad_A; ++i)
                {
                   grad_A[i] = 0.0;
@@ -367,6 +389,8 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                   MFEM_UNROLL(2)
                   for (int jz=0; jz<2; ++jz)
                   {
+                     // Note loop starts at iz=jz here, taking advantage of
+                     // symmetries.
                      MFEM_UNROLL(2)
                      for (int iz=jz; iz<2; ++iz)
                      {
@@ -383,15 +407,15 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                               const double bjz = (jz == iqz) ? 1.0 : 0.0;
                               const double gjz = (jz == 0) ? -1.0 : 1.0;
 
-                              const double J11 = invJ(0,iq,k,iel_ho);
-                              const double J21 = invJ(1,iq,k,iel_ho);
-                              const double J31 = invJ(2,iq,k,iel_ho);
+                              const double J11 = Q(0,iq,k,iel_ho);
+                              const double J21 = Q(1,iq,k,iel_ho);
+                              const double J31 = Q(2,iq,k,iel_ho);
                               const double J12 = J21;
-                              const double J22 = invJ(3,iq,k,iel_ho);
-                              const double J32 = invJ(4,iq,k,iel_ho);
+                              const double J22 = Q(3,iq,k,iel_ho);
+                              const double J32 = Q(4,iq,k,iel_ho);
                               const double J13 = J31;
                               const double J23 = J32;
-                              const double J33 = invJ(5,iq,k,iel_ho);
+                              const double J33 = Q(5,iq,k,iel_ho);
 
                               grad_A(0,0,iqy,iz,jz,iqx) += J11*biz*bjz;
                               grad_A(1,0,iqy,iz,jz,iqx) += J21*biz*bjz;
@@ -448,6 +472,8 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                                     int ii_loc = ix + 2*iy + 4*iz;
                                     int jj_loc = jx + 2*jy + 4*jz;
 
+                                    // Only store the lower-triangular part of
+                                    // the matrix (by symmetry).
                                     if (jj_loc > ii_loc) { continue; }
 
                                     double val = 0.0;
@@ -469,6 +495,9 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                      }
                   }
                }
+               // Assemble the local matrix into the macro-element sparse matrix
+               // in a format similar to coordinate format. The (I,J) arrays
+               // are implicit (not stored explicitly).
                for (int ii_loc=0; ii_loc<8; ++ii_loc)
                {
                   int ix = ii_loc%2;
@@ -486,11 +515,11 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
 
                      if (jj_loc <= ii_loc)
                      {
-                        V[jj_off + ii_el*nnz_per_row] += local_mat(ii_loc, jj_loc);
+                        V(jj_off, ii_el) += local_mat(ii_loc, jj_loc);
                      }
                      else
                      {
-                        V[jj_off + ii_el*nnz_per_row] += local_mat(jj_loc, ii_loc);
+                        V(jj_off, ii_el) += local_mat(jj_loc, ii_loc);
                      }
                   }
                }
@@ -498,6 +527,8 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          }
       }
 
+      // Place the macro-element sparse matrix into the global sparse matrix.
+      Array<int> dofs;
       fes_ho.GetElementDofs(iel_ho, dofs);
       for (int ii_el=0; ii_el<ndof_per_el; ++ii_el)
       {
@@ -506,7 +537,11 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          int iz = ii_el/nd1d/nd1d;
          int ii = dofs[lex_map[ii_el]];
 
-         A_mat.SetColPtr(ii);
+         // Set column pointer to avoid searching in the row
+         for (int j = I[ii], end = I[ii+1]; j < end; j++)
+         {
+            col_ptr[J[j]] = j;
+         }
 
          int jx_begin = (ix > 0) ? ix - 1 : 0;
          int jx_end = (ix < order) ? ix + 1 : order;
@@ -526,13 +561,13 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
                   int jj_el = jx + jy*nd1d + jz*nd1d*nd1d;
                   int jj = dofs[lex_map[jj_el]];
                   int jj_off = (jx-ix+1) + 3*(jy-iy+1) + 9*(jz-iz+1);
-                  A_mat._Add_(jj, V[jj_off + ii_el*nnz_per_row]);
+
+                  A[col_ptr[jj]] += V(jj_off, ii_el);
                }
             }
          }
-         A_mat.ClearColPtr();
       }
-   }
+   });
 }
 
 void AssembleBatchedLOR(BilinearForm &form_lor, FiniteElementSpace &fes_ho,

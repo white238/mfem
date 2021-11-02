@@ -43,7 +43,7 @@ void Assemble2DBatchedLOR(Mesh &mesh_lor,
    Array<double> invJ_data(nel_ho*pow(order,dim)*nq*(dim*(dim+1))/2);
    auto invJ = Reshape(invJ_data.Write(), (dim*(dim+1))/2, nq, pow(order,dim),
                        nel_ho);
-   auto J = Reshape(geom->J.Read(), nq, dim, dim, nel_lor);
+   const auto J = Reshape(geom->J.Read(), nq, dim, dim, nel_lor);
 
    // Array<double> J_data(nq*dim*dim*nel_lor);
    // auto J = Reshape(J_data.Write(), nq, dim, dim, nel_lor);
@@ -267,9 +267,9 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
          }
       }
 
-      auto el_vert = Reshape(el_vert_.Read(), dim, nv, nel_lor);
-      auto lor2ho = lor2ho_.Read();
-      auto lor2ref = lor2ref_.Read();
+      const auto el_vert = Reshape(el_vert_.Read(), dim, nv, nel_lor);
+      const auto lor2ho = lor2ho_.Read();
+      const auto lor2ref = lor2ref_.Read();
       auto Q = Reshape(Q_.Write(),(dim*(dim+1))/2,nv,pow(order,dim),nel_ho);
 
       MFEM_FORALL(iel_lor, nel_lor,
@@ -367,33 +367,34 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
       });
    }
 
-   Vector V_(nnz_per_el, MemoryType::DEVICE);
+   Vector V_(nnz_per_el/*, MemoryType::DEVICE*/);
    Array<int> col_ptr_;
-   col_ptr_.SetSize(A_mat.Height(), MemoryType::DEVICE);
+   col_ptr_.SetSize(A_mat.Height()/*, MemoryType::DEVICE*/);
 
    static constexpr int sz_grad_A = 3*3*2*2*2*2;
    static constexpr int sz_grad_B = sz_grad_A*2;
    static constexpr int sz_local_mat = 8*8;
-   Vector grad_A_(sz_grad_A, MemoryType::DEVICE);
-   Vector grad_B_(sz_grad_B, MemoryType::DEVICE);
-   Vector local_mat_(sz_local_mat, MemoryType::DEVICE);
+   Vector grad_A_(sz_grad_A/*, MemoryType::DEVICE*/);
+   Vector grad_B_(sz_grad_B/*, MemoryType::DEVICE*/);
+   Vector local_mat_(sz_local_mat/*, MemoryType::DEVICE*/);
 
-   auto V = Reshape(V_.Write(), nnz_per_row, ndof_per_el);
+   auto V = Reshape(V_.ReadWrite(), nnz_per_row, ndof_per_el);
 
-   auto I = A_mat.ReadI();
-   auto J = A_mat.ReadJ();
+   const auto I = A_mat.ReadI();
+   const auto J = A_mat.ReadJ();
    auto A = A_mat.ReadWriteData();
 
-   auto el_dof_lex = Reshape(el_dof_lex_.Read(), ndof_per_el, nel_ho);
+   const auto el_dof_lex = Reshape(el_dof_lex_.Read(), ndof_per_el, nel_ho);
    auto col_ptr = Reshape(col_ptr_.Write(), A_mat.Height());
 
    auto grad_A = Reshape(grad_A_.Write(), 3, 3, 2, 2, 2, 2);
    auto grad_B = Reshape(grad_B_.Write(), 3, 3, 2, 2, 2, 2, 2);
    auto local_mat = Reshape(local_mat_.Write(), 8, 8);
 
-   auto Q = Reshape(Q_.Read(),(dim*(dim+1))/2,nv,pow(order,dim),nel_ho);
+   const auto Q = Reshape(Q_.Read(),(dim*(dim+1))/2,nv,pow(order,dim),nel_ho);
 
    MFEM_FORALL(iel_ho, nel_ho,
+   // for (int iel_ho=0; iel_ho<nel_ho; ++iel_ho)
    {
       // Assemble a sparse matrix over the macro-element by looping over each
       // subelement.
@@ -607,6 +608,7 @@ void Assemble3DBatchedLOR(Mesh &mesh_lor,
             }
          }
       }
+   // }
    });
 }
 
@@ -684,12 +686,24 @@ void AssembleBatchedLOR(BilinearForm &form_lor, FiniteElementSpace &fes_ho,
       }
    }
 
-   for (int i : ess_dofs)
-   {
-      A_mat->EliminateRowCol(i, Operator::DIAG_KEEP);
-   }
 
-   A_mat->Finalize();
+   auto I_d = A_mat->ReadI();
+   auto J_d = A_mat->ReadJ();
+   auto A_d = A_mat->ReadWriteData();
+   const auto ess_dofs_d = ess_dofs.Read();
+   const int n_ess_dofs = ess_dofs.Size();
+
+   MFEM_FORALL(i, n_ess_dofs,
+   {
+      for (int j=I_d[i]; j<I_d[i+1]; ++j)
+      {
+         if (J_d[j] != i)
+         {
+            A_d[j] = 0.0;
+         }
+      }
+   });
+
    A.Reset(A_mat); // A now owns A_mat
 }
 

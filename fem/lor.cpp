@@ -313,6 +313,10 @@ void LORBase::AssembleSystem_(BilinearForm &a_ho, const Array<int> &ess_dofs)
 
    tic();
    AssembleBatchedLOR(*a, fes_ho, ess_dofs, A_batched);
+   A_batched.As<SparseMatrix>()->HostReadWriteI();
+   A_batched.As<SparseMatrix>()->HostReadWriteJ();
+   A_batched.As<SparseMatrix>()->HostReadWriteData();
+
    mfem::out << "Batched LOR assembly time  = " << toc() << '\n';
 
    const int mesh_p = 1;
